@@ -1,0 +1,40 @@
+# `postgis/postgis:16-3.4` is currently linux/amd64-only. Docker Desktop on
+# Apple Silicon runs it through its supported amd64 emulation when this platform
+# is pinned, avoiding an architecture-selection failure. Redis is multi-arch
+# and therefore remains native on both amd64 and ARM64 hosts.
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    platform: linux/amd64
+    container_name: networkpeer-postgis
+    environment:
+      POSTGRES_DB: networkpeer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - networkpeer-postgis-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d networkpeer"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: networkpeer-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - networkpeer-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  networkpeer-postgis-data:
+  networkpeer-redis-data:
