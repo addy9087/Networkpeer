@@ -37,12 +37,14 @@ export function PortalShell({
   const SidebarBody = (
     <div className="flex h-full flex-col gap-6 p-4">
       <Link to="/" className="flex items-center gap-3 px-2 pt-1">
-        <span className="gradient-brand grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg font-bold text-primary-foreground">
+        <span className="gradient-brand animate-gradient-pan grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg font-bold text-primary-foreground">
           N
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-lg font-semibold">{brand}</span>
-          <span className="block truncate text-base text-muted-foreground">{brandSub}</span>
+          <span className="text-gradient-brand block truncate text-2xl font-bold tracking-tight">
+            {brand}
+          </span>
+          <span className="block truncate text-sm text-muted-foreground">{brandSub}</span>
         </span>
       </Link>
 

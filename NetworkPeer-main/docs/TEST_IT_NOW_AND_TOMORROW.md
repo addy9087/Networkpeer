@@ -18,6 +18,20 @@ install there). It also covers the **cloud database** option and your **live AWS
 
 ---
 
+## ⏱ The 5-minute smoke test (if you're in a hurry)
+
+1. Restart the API once so it picks up fee=0 + any `.env` changes:
+   `pkill -f "node dist/index.js"; cd NetworkPeer-main && npm run build && node dist/index.js`
+2. `localhost:8080` → check the big gradient **NetworkPeers** wordmark, animated hero, 3D-tilt
+   demo card (hover it), and that stat cards on `/client` have larger text.
+3. Normal window: sign up client, then `/client/jobs/new`: set checklist count to `3` → three
+   task boxes appear; search an address on the map and tap a spot; budget `500` → **Post job**.
+4. Click **Fund escrow** on the job → in a terminal:
+   `node scripts/simulate-payment-webhook.mjs <operationId> <providerReference>` → status
+   becomes `POSTED`.
+5. Incognito window: sign up worker → accept the job → run the task statuses.
+6. Evidence + submit need S3 keys in `.env` (see §3). Approve + wallet shows full payout, no fee.
+
 ## 1. Right now on your Mac (everything is already running)
 
 Two servers must be up. If they are, skip to **Step 3**.
@@ -217,3 +231,23 @@ Known limits to mention honestly in the demo: evidence needs S3 configured (sect
 admin screens are still prototypes; browser push (FCM) is not wired; cloud login needs
 Twilio (section 2's cloud DB keeps OTP echo in dev mode because the API still runs locally —
 this stays true for the tunnel setup).
+
+---
+
+## 6. What to send to the office laptop before sleeping
+
+The Linux laptop needs **nothing but a browser** — no code, no installs. Email or Teams-message
+these three things tonight (or first thing tomorrow):
+
+1. **`NetworkPeer-main/docs/EXECUTIVE_PRESENTATION_AND_DEPLOYMENT_GUIDE.docx`** — the demo
+   script with talking points (also the `.md` if email is fine with it).
+2. **`NetworkPeer-main/docs/NETWORKPEER_COMPLETE_GUIDE.docx`** — the full technical breakdown
+   (in case anyone asks hard questions).
+3. **The two URLs** (only after the cloud deploy is live, tomorrow morning at the latest):
+   - `https://<vercel-origin>` — the app (open normal + incognito windows)
+   - `https://<vercel-origin>/dev/settle-funding` — the funding settler
+   If you're presenting via the tunnel instead (Mac available): the two trycloudflare URLs.
+
+That's the entire handover. The office machine never runs the app — it only opens links.
+> If you are not presenting from this Mac and it is not allowed in the office, use
+> `DEPLOY_CLOUD_LINUX_ONLY.md` to stand up the cloud deployment tonight.
