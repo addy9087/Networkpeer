@@ -126,8 +126,10 @@ export function StatCard({
     <div className="hover-lift animate-rise flex h-full min-h-[220px] flex-col justify-between rounded-2xl border border-border bg-card p-5 shadow-soft sm:min-h-[240px]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-sm leading-relaxed text-muted-foreground">{label}</p>
-          <p className="mt-3 break-words text-3xl font-semibold tracking-tight leading-tight sm:text-[2rem]">
+          <p className="text-base font-medium leading-relaxed text-muted-foreground sm:text-lg">
+            {label}
+          </p>
+          <p className="mt-3 break-words text-4xl font-semibold tracking-tight leading-tight sm:text-[2.5rem]">
             {value}
           </p>
         </div>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { cn, formatCurrency } from "@/lib/utils";
 import { api, ApiError, type Job } from "@/lib/api";
 import { PageHeader } from "@/components/shell/portal-shell";
+import { LocationPicker } from "@/components/location-picker";
 import { SectionCard, SuccessCheck } from "@/components/marketplace/primitives";
 
 export const Route = createFileRoute("/client/jobs/new")({
@@ -42,13 +43,7 @@ function normalizeWholeAmount(value: string): string {
   return digits.length === 0 ? "" : String(Number.parseInt(digits, 10));
 }
 
-function parseCoordinate(value: string, minimum: number, maximum: number): number | null {
-  if (value.trim() === "") return null;
-  const coordinate = Number(value);
-  return Number.isFinite(coordinate) && coordinate >= minimum && coordinate <= maximum
-    ? coordinate
-    : null;
-}
+const MAX_CHECKLIST_ITEMS = 50;
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return `${error.code}: ${error.message}`;
@@ -72,11 +67,11 @@ function CreateJob() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(jobCategories[0]);
   const [address, setAddress] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [description, setDescription] = useState("");
   const [paymentInput, setPaymentInput] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
+  const [countInput, setCountInput] = useState(String(items.length));
 
   const paymentRupees = useMemo(
     () => (paymentInput === "" ? 0 : Number.parseInt(paymentInput, 10)),
@@ -97,6 +92,7 @@ function CreateJob() {
 
   const removeSubtask = useCallback((id: number) => {
     setItems((previous) => previous.filter((item) => item.id !== id));
+    setCountInput((previous) => String(Math.max(0, (Number.parseInt(previous, 10) || 1) - 1)));
   }, []);
 
   const addSubtask = useCallback(() => {
@@ -104,7 +100,34 @@ function CreateJob() {
       ...previous,
       { id: Date.now(), title: "", instructions: "", isRequired: true },
     ]);
+    setCountInput((previous) => String(Math.min(MAX_CHECKLIST_ITEMS, (Number.parseInt(previous, 10) || 0) + 1)));
   }, []);
+
+  const resizeItems = useCallback((count: number) => {
+    const clamped = Math.max(0, Math.min(MAX_CHECKLIST_ITEMS, Math.floor(Number.isFinite(count) ? count : 0)));
+    setItems((previous) => {
+      if (clamped === previous.length) return previous;
+      if (clamped < previous.length) return previous.slice(0, clamped);
+      const nextId = previous.reduce((max, item) => Math.max(max, item.id), 0) + 1;
+      const added = Array.from({ length: clamped - previous.length }, (_, index) => ({
+        id: nextId + index,
+        title: "",
+        instructions: "",
+        isRequired: true,
+      }));
+      return [...previous, ...added];
+    });
+    return clamped;
+  }, []);
+
+  const handleCountChange = useCallback(
+    (raw: string) => {
+      setCountInput(raw);
+      const clamped = resizeItems(Number.parseInt(raw, 10));
+      setCountInput(String(clamped));
+    },
+    [resizeItems],
+  );
 
   const handleBudgetChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setPaymentInput(normalizeWholeAmount(event.target.value));
@@ -114,8 +137,6 @@ function CreateJob() {
     const normalizedTitle = title.trim();
     const normalizedDescription = description.trim();
     const normalizedAddress = address.trim();
-    const parsedLatitude = parseCoordinate(latitude, -90, 90);
-    const parsedLongitude = parseCoordinate(longitude, -180, 180);
 
     if (normalizedTitle.length < 3) {
       setFormError("Job title must contain at least 3 characters.");
@@ -129,8 +150,8 @@ function CreateJob() {
       setFormError("Payment must be a whole INR amount between ₹1 and ₹10,000,000.");
       return;
     }
-    if (parsedLatitude === null || parsedLongitude === null) {
-      setFormError("Enter valid latitude (-90 to 90) and longitude (-180 to 180) values.");
+    if (!location) {
+      setFormError("Tap the map to set the job location before posting.");
       return;
     }
 
@@ -160,7 +181,7 @@ function CreateJob() {
         category,
         budget_cents: budgetCents,
         currency: "INR",
-        location: { type: "Point", coordinates: [parsedLongitude, parsedLatitude] },
+        location: { type: "Point", coordinates: [location.lng, location.lat] },
         ...(normalizedAddress ? { address: normalizedAddress } : {}),
         ...(deadlineIso ? { scheduled_at: deadlineIso } : {}),
         idempotency_key: idempotencyKeyRef.current,
@@ -179,7 +200,7 @@ function CreateJob() {
       toast.error(message);
       setSubmitState("idle");
     }
-  }, [address, budgetCents, category, description, items, latitude, longitude, scheduledAt, title]);
+  }, [address, budgetCents, category, description, items, location, scheduledAt, title]);
 
   const postAnother = useCallback(() => {
     idempotencyKeyRef.current = null;
@@ -271,31 +292,14 @@ function CreateJob() {
                   />
                 </label>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label>
-                  <span className={labelCls()}>Latitude</span>
-                  <input
-                    className={inputCls}
-                    inputMode="decimal"
-                    value={latitude}
-                    onChange={(event) => setLatitude(event.target.value)}
-                    placeholder="e.g. 19.0760"
-                  />
-                </label>
-                <label>
-                  <span className={labelCls()}>Longitude</span>
-                  <input
-                    className={inputCls}
-                    inputMode="decimal"
-                    value={longitude}
-                    onChange={(event) => setLongitude(event.target.value)}
-                    placeholder="e.g. 72.8777"
-                  />
-                </label>
-              </div>
-              <p className="-mt-2 text-sm text-muted-foreground">
-                Coordinates are sent as GeoJSON in backend-required order: longitude, then latitude.
-              </p>
+              <label>
+                <span className={labelCls()}>Job location</span>
+                <LocationPicker
+                  lat={location?.lat ?? null}
+                  lng={location?.lng ?? null}
+                  onPick={(nextLat, nextLng) => setLocation({ lat: nextLat, lng: nextLng })}
+                />
+              </label>
               <label>
                 <span className={labelCls()}>Description</span>
                 <textarea
@@ -315,6 +319,45 @@ function CreateJob() {
             description="Required items are enforced by the worker evidence submission workflow."
           >
             <div className="space-y-4">
+              <div className="rounded-2xl border border-border bg-muted/30 p-4">
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <label className="text-base font-medium">Number of checklist items</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Fewer checklist items"
+                      onClick={() =>
+                        handleCountChange(String(Math.max(0, (Number.parseInt(countInput, 10) || 0) - 1)))
+                      }
+                      className="press grid h-9 w-9 place-items-center rounded-lg border border-border bg-card text-lg font-semibold hover:border-primary/40"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min={0}
+                      max={MAX_CHECKLIST_ITEMS}
+                      value={countInput}
+                      onChange={(event) => handleCountChange(event.target.value)}
+                      aria-label="Number of checklist items"
+                      className="h-9 w-20 rounded-lg border border-border bg-card text-center text-base font-semibold outline-none focus:ring-2 focus:ring-ring/40"
+                    />
+                    <button
+                      type="button"
+                      aria-label="More checklist items"
+                      onClick={() =>
+                        handleCountChange(String(Math.min(MAX_CHECKLIST_ITEMS, (Number.parseInt(countInput, 10) || 0) + 1)))
+                      }
+                      className="press grid h-9 w-9 place-items-center rounded-lg border border-border bg-card text-lg font-semibold hover:border-primary/40"
+                    >
+                      +
+                    </button>
+                    <span className="hidden text-sm text-muted-foreground sm:inline">
+                      0–{MAX_CHECKLIST_ITEMS} tasks, generated instantly
+                    </span>
+                  </div>
+                </div>
+              </div>
               {items.map((item, index) => (
                 <div key={item.id} className="rounded-2xl border border-border bg-muted/30 p-4">
                   <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
@@ -410,7 +453,6 @@ function CreateJob() {
                 ["Checklist items", String(checklistSummary.total)],
                 ["Evidence required", String(checklistSummary.required)],
                 ["Job budget", formatCurrency(paymentRupees)],
-                ["Platform fee", formatCurrency(0)],
               ].map(([label, value]) => (
                 <div key={label} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
                   <dt className="text-muted-foreground">{label}</dt>

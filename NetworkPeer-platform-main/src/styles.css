@@ -266,6 +266,88 @@
   }
 }
 
+/* ====== HOME PAGE ANIMATIONS (3D-like, dependency-free) ====== */
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-14px);
+  }
+}
+
+@utility animate-float {
+  animation: float-y 6s ease-in-out infinite;
+}
+
+@keyframes blob-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(48px, -36px) scale(1.15);
+  }
+  66% {
+    transform: translate(-36px, 28px) scale(0.92);
+  }
+}
+
+@utility animate-blob {
+  animation: blob-drift 16s ease-in-out infinite;
+  will-change: transform;
+}
+
+@utility animate-blob-slow {
+  animation: blob-drift 26s ease-in-out infinite reverse;
+  will-change: transform;
+}
+
+@keyframes gradient-pan {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@utility animate-gradient-pan {
+  background-size: 200% 200%;
+  animation: gradient-pan 8s ease infinite;
+}
+
+/* 3D tilt cards: pair with inline --rx/--ry CSS variables set from JS. */
+@utility tilt-card {
+  transform-style: preserve-3d;
+  transition: transform 0.2s ease-out;
+  will-change: transform;
+}
+
+@utility tilt-float {
+  transform: translateZ(28px);
+}
+
+@keyframes fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-fade-slide {
+  animation: fade-slide-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* ====== WORKER PORTAL - SMALLER FONTS ONLY ====== */
 .worker-portal-container {
   font-size: 0.85rem !important;
