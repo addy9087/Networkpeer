@@ -1,0 +1,5 @@
+# Local tooling workspace
+.freebuff/
+
+# macOS junk
+.DS_Store

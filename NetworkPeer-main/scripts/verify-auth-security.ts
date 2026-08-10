@@ -11,7 +11,9 @@ import { closeConnections, redis } from "../src/db.js";
 import { config } from "../src/config.js";
 
 const client = new pg.Client({ connectionString: config.DATABASE_URL });
-const PHONE = "+10000000201";
+// Keep this seed distinct from all phase verifier phone ranges so their
+// dependency cleanup cannot delete each other's users or jobs.
+const PHONE = "+10000000999";
 
 function refreshClaims(token: string): RefreshTokenClaims {
   const payload = token.split(".")[1];

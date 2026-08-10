@@ -4,6 +4,7 @@ export const userRoleSchema = z.enum(["CLIENT", "WORKER", "ADMIN"]);
 export type UserRole = z.infer<typeof userRoleSchema>;
 
 export const jobStatusSchema = z.enum([
+  "FUNDING",
   "POSTED",
   "ASSIGNED",
   "EN_ROUTE",
@@ -17,11 +18,37 @@ export const jobStatusSchema = z.enum([
 ]);
 export type JobStatus = z.infer<typeof jobStatusSchema>;
 
+export const escrowStatusSchema = z.enum([
+  "UNFUNDED",
+  "PENDING",
+  "HELD",
+  "RELEASED",
+  "FROZEN",
+  "REFUNDED",
+]);
+export type EscrowStatus = z.infer<typeof escrowStatusSchema>;
+
 export const mediaStatusSchema = z.enum(["PENDING", "UPLOADED", "VERIFIED", "REJECTED"]);
 export type MediaStatus = z.infer<typeof mediaStatusSchema>;
 
 export const mediaTypeSchema = z.enum(["IMAGE", "VIDEO", "AUDIO", "DOCUMENT"]);
 export type MediaType = z.infer<typeof mediaTypeSchema>;
+
+export const syncTopicSchema = z.enum([
+  "JOB_CREATED",
+  "JOB_ASSIGNED",
+  "JOB_STATUS_CHANGED",
+  "JOB_CANCELLED",
+  "JOB_REASSIGNED",
+  "EVIDENCE_UPLOADED",
+  "LEDGER_POSTED",
+  "NOTIFICATION_READ",
+  "SYSTEM",
+]);
+export type SyncTopic = z.infer<typeof syncTopicSchema>;
+
+export const pushPlatformSchema = z.enum(["WEB", "IOS", "ANDROID"]);
+export type PushPlatform = z.infer<typeof pushPlatformSchema>;
 
 export const subtaskStatusSchema = z.enum(["PENDING", "IN_PROGRESS", "COMPLETED", "SKIPPED"]);
 export type SubtaskStatus = z.infer<typeof subtaskStatusSchema>;
@@ -87,6 +114,8 @@ export type Job = {
   budget_cents: number;
   platform_fee_cents: number;
   currency: string;
+  escrow_status: EscrowStatus;
+  funded_at: Date | null;
   location: Point;
   address: string | null;
   scheduled_at: Date | null;
@@ -195,6 +224,34 @@ export type WalletLedgerEntry = {
   metadata: Record<string, unknown>;
   idempotency_key: string | null;
   processed_at: Date | null;
+  created_at: Date;
+};
+
+/** A durable, ordered user event; cursor is a decimal string to preserve BIGINT precision. */
+export type SyncEvent = {
+  cursor: string;
+  event_id: string;
+  topic: SyncTopic;
+  entity_type: string;
+  entity_id: string | null;
+  payload: Record<string, unknown>;
+  created_at: Date;
+  notification: {
+    id: string;
+    title: string;
+    body: string;
+    read_at: Date | null;
+  } | null;
+};
+
+export type Notification = {
+  id: string;
+  cursor: string;
+  topic: SyncTopic;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  read_at: Date | null;
   created_at: Date;
 };
 

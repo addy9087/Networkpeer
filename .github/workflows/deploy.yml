@@ -1,0 +1,92 @@
+name: NetworkPeer CI
+
+on:
+  pull_request:
+    paths:
+      - "NetworkPeer-main/**"
+      - ".github/workflows/deploy.yml"
+  push:
+    branches: [main]
+    paths:
+      - "NetworkPeer-main/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-build:
+    name: Verify API and Build Image
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: NetworkPeer-main
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/networkpeer_e2e
+      REDIS_URL: redis://localhost:6379
+      DATABASE_POOL_MIN: "0"
+      PAYMENT_GATEWAY: stub
+      PAYMENT_WEBHOOK_SECRET: ci-payment-webhook-secret-1234567890
+      PAYMENT_DISPATCH_ENABLED: "false"
+      BACKGROUND_QUEUES_ENABLED: "false"
+      LOG_PRETTY: "false"
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: networkpeer_e2e
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d networkpeer_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: NetworkPeer-main/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build API
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Apply migrations to isolated E2E database
+        run: npm run migrate
+
+      - name: Run funded job acceptance E2E test
+        run: npm run test:e2e
+
+      - name: Build production Docker image
+        run: docker build --target runtime --tag networkpeer-api:${{ github.sha }} .

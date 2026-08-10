@@ -1,14 +1,5 @@
-import {
-  updateWorkerVerification,
-  type WorkerJobProfile,
-  type WorkerVerificationStatus,
-} from "../repository.js";
-
-function databaseErrorCode(err: unknown): string | null {
-  if (typeof err !== "object" || err === null || !("code" in err)) return null;
-  const code = (err as { code?: unknown }).code;
-  return typeof code === "string" ? code : null;
-}
+import type { WorkerJobProfile, WorkerVerificationStatus } from "../repository.js";
+import { adminService, AdminServiceError } from "./admin-service.js";
 
 export class AdminWorkerServiceError extends Error {
   readonly code: string;
@@ -24,27 +15,37 @@ export class AdminWorkerServiceError extends Error {
 
 export class AdminWorkerService {
   async setVerification(
+    actorUserId: string,
     workerId: string,
     verificationStatus: WorkerVerificationStatus,
     isAvailable: boolean,
+    reason: string,
   ): Promise<WorkerJobProfile> {
-    let profile: WorkerJobProfile | null;
     try {
-      profile = await updateWorkerVerification(workerId, verificationStatus, isAvailable);
+      const result = await adminService.updateWorkerVerification({
+        actorUserId,
+        workerId,
+        verificationStatus,
+        isAvailable,
+        reason,
+      });
+      return result.profile;
     } catch (err) {
-      if (databaseErrorCode(err) === "55000") {
+      if (err instanceof AdminServiceError && err.statusCode === 409) {
         throw new AdminWorkerServiceError(
           "WORKER_HAS_ACTIVE_JOB",
-          "Worker cannot be made available while assigned work is active",
+          "Resolve active work before changing worker verification",
           409,
         );
       }
+      if (err instanceof AdminServiceError && err.statusCode === 404) {
+        throw new AdminWorkerServiceError("WORKER_NOT_FOUND", "Worker profile not found", 404);
+      }
+      if (err instanceof AdminServiceError) {
+        throw new AdminWorkerServiceError(err.code, err.message, err.statusCode);
+      }
       throw err;
     }
-    if (!profile) {
-      throw new AdminWorkerServiceError("WORKER_NOT_FOUND", "Worker profile not found", 404);
-    }
-    return profile;
   }
 }
 

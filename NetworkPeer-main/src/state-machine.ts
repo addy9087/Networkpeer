@@ -7,6 +7,7 @@ import type { JobStatus } from "./contracts.js";
  */
 
 export const JOB_STATUSES: readonly JobStatus[] = [
+  "FUNDING",
   "POSTED",
   "ASSIGNED",
   "EN_ROUTE",
@@ -21,9 +22,10 @@ export const JOB_STATUSES: readonly JobStatus[] = [
 
 /**
  * Canonical happy-path lifecycle defined in the roadmap:
- * POSTED -> ASSIGNED -> EN_ROUTE -> AT_LOCATION -> IN_PROGRESS -> SUBMITTED -> APPROVED -> COMPLETED
+ * FUNDING -> POSTED -> ASSIGNED -> EN_ROUTE -> AT_LOCATION -> IN_PROGRESS -> SUBMITTED -> APPROVED -> COMPLETED
  */
 const TRANSITIONS: ReadonlyMap<JobStatus, ReadonlySet<JobStatus>> = new Map<JobStatus, ReadonlySet<JobStatus>>([
+  ["FUNDING", new Set(["POSTED", "CANCELLED"])],
   ["POSTED", new Set(["ASSIGNED", "CANCELLED"])],
   ["ASSIGNED", new Set(["EN_ROUTE", "CANCELLED", "DISPUTED"])],
   ["EN_ROUTE", new Set(["AT_LOCATION", "CANCELLED", "DISPUTED"])],
@@ -66,12 +68,11 @@ export function canBeClaimed(status: JobStatus): boolean {
 }
 
 /**
- * A client may cancel a job only while it is still POSTED (no worker has been
- * committed yet). Once a worker is assigned the job moves out of the client's
- * unilateral control (cancellation then requires admin/dispute resolution).
+ * A client may cancel an unfunded FUNDING job. Once escrow is held, cancellation
+ * needs an explicit audited refund workflow rather than silent fund release.
  */
 export function canClientCancel(status: JobStatus): boolean {
-  return status === "POSTED";
+  return status === "FUNDING";
 }
 
 export function canWorkOn(status: JobStatus): boolean {
@@ -79,5 +80,5 @@ export function canWorkOn(status: JobStatus): boolean {
 }
 
 export function isWorkflowOpen(status: JobStatus): boolean {
-  return !isTerminal(status) && !["POSTED", "SUBMITTED", "APPROVED"].includes(status);
+  return !isTerminal(status) && !["FUNDING", "POSTED", "SUBMITTED", "APPROVED"].includes(status);
 }

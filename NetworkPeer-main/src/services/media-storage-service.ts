@@ -31,7 +31,7 @@ export interface MediaStorage {
     checksumSha256Base64: string;
     maxUploadBytes: number;
   }): Promise<MediaUploadTarget>;
-  headObject(input: { bucket: string; key: string }): Promise<StoredMediaObject>;
+  headObject(input: { bucket: string; key: string; versionId?: string }): Promise<StoredMediaObject>;
   setObjectState(input: {
     bucket: string;
     key: string;
@@ -114,11 +114,12 @@ export class S3MediaStorage implements MediaStorage {
     });
   }
 
-  async headObject(input: { bucket: string; key: string }): Promise<StoredMediaObject> {
+  async headObject(input: { bucket: string; key: string; versionId?: string }): Promise<StoredMediaObject> {
     const object = await this.client.send(
       new HeadObjectCommand({
         Bucket: input.bucket,
         Key: input.key,
+        VersionId: input.versionId,
         ChecksumMode: "ENABLED",
       }),
     );

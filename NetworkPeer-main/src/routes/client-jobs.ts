@@ -7,6 +7,7 @@ import { parseBody } from "../utils/validation.js";
 import type { Point } from "../contracts.js";
 
 const jobStatuses = [
+  "FUNDING",
   "POSTED",
   "ASSIGNED",
   "EN_ROUTE",
@@ -24,12 +25,12 @@ const locationSchema = z
   .union([
     z.object({
       type: z.literal("Point"),
-      coordinates: z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]),
-    }),
+      coordinates: z.tuple([z.number().finite().min(-180).max(180), z.number().finite().min(-90).max(90)]),
+    }).strict(),
     z.object({
-      latitude: z.number().min(-90).max(90),
-      longitude: z.number().min(-180).max(180),
-    }),
+      latitude: z.number().finite().min(-90).max(90),
+      longitude: z.number().finite().min(-180).max(180),
+    }).strict(),
   ])
   .transform((v): Point =>
     "type" in v
@@ -49,31 +50,32 @@ const createJobSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   public_title: z.string().trim().min(3).max(255).optional(),
   public_description: z.string().trim().max(2000).optional(),
+  idempotency_key: z.string().trim().min(8).max(255).optional(),
   subtasks: z
     .array(
       z.object({
         title: z.string().trim().min(1).max(255),
         description: z.string().trim().max(2000).optional(),
         is_required: z.boolean().optional(),
-      }),
+      }).strict(),
     )
     .max(50)
     .optional(),
-});
+}).strict();
 
 const listQuerySchema = z.object({
   status: z.enum(jobStatuses).optional(),
   page: z.coerce.number().int().min(1).max(1000).default(1),
   per_page: z.coerce.number().int().min(1).max(100).default(20),
-});
+}).strict();
 
 const jobParamsSchema = z.object({
   jobId: z.string().uuid(),
-});
+}).strict();
 
 const cancelJobSchema = z.object({
   cancellation_reason: z.string().trim().max(1000).optional(),
-});
+}).strict();
 
 function handleJobError(request: FastifyRequest, reply: FastifyReply, err: unknown): unknown {
   if (err instanceof JobServiceError) {
@@ -109,6 +111,7 @@ export default async function clientJobsRoutes(app: FastifyInstance): Promise<vo
             publicTitle: parsed.value.public_title,
             publicDescription: parsed.value.public_description,
             subtasks: parsed.value.subtasks,
+            idempotencyKey: parsed.value.idempotency_key,
           });
           return reply.code(201).send(ok(job));
         } catch (err) {
@@ -170,6 +173,26 @@ export default async function clientJobsRoutes(app: FastifyInstance): Promise<vo
           return handleJobError(request, reply, err);
         }
       });
+
+      for (const [path, action] of [
+        ["/client/jobs/:jobId/complete", "COMPLETE"],
+        ["/client/jobs/:jobId/dispute", "DISPUTE"],
+      ] as const) {
+        child.post(path, async (request, reply) => {
+          const params = jobParamsSchema.safeParse(request.params);
+          if (!params.success) {
+            return reply.code(400).send(fail("VALIDATION_ERROR", "Invalid job id"));
+          }
+          try {
+            return ok({
+              job: await jobService.resolve(request.auth.userId, params.data.jobId, action),
+              action,
+            });
+          } catch (err) {
+            return handleJobError(request, reply, err);
+          }
+        });
+      }
     },
     {},
   );

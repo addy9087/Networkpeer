@@ -2,6 +2,23 @@ export function normalizePhoneNumber(rawValue) {
   return (rawValue || "").replace(/\D/g, "");
 }
 
+export function toE164Phone(countryCode, rawValue) {
+  const normalizedCountryCode = String(countryCode || "").replace(/\D/g, "");
+  const raw = String(rawValue || "").trim();
+  let nationalNumber = normalizePhoneNumber(raw);
+
+  if (!normalizedCountryCode || !/^[1-9]\d{0,2}$/.test(normalizedCountryCode)) {
+    return null;
+  }
+  if (raw.startsWith("+")) {
+    if (!nationalNumber.startsWith(normalizedCountryCode)) return null;
+    nationalNumber = nationalNumber.slice(normalizedCountryCode.length);
+  }
+
+  const value = `+${normalizedCountryCode}${nationalNumber}`;
+  return /^\+[1-9]\d{1,14}$/.test(value) && nationalNumber.length >= 7 ? value : null;
+}
+
 export function isPhoneNumberValid(rawValue) {
   return normalizePhoneNumber(rawValue).length >= 7;
 }
@@ -29,8 +46,8 @@ export function formatPhoneNumber(rawValue, countryCode) {
   return `${countryCode} ${digits}`.trim();
 }
 
-export function isOtpCodeValid(value) {
-  return /^\d{6}$/.test(value || "");
+export function isOtpCodeValid(value, length = 6) {
+  return new RegExp(`^\\d{${length}}$`).test(value || "");
 }
 
 export function getDemoOtp() {

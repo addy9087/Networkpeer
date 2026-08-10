@@ -32,6 +32,7 @@ async function cleanup(): Promise<void> {
   );
   const ids = result.rows.map((row) => row.id);
   if (ids.length === 0) return;
+  await client.query(`DELETE FROM admin_audit_log WHERE actor_user_id = ANY($1::uuid[])`, [ids]);
   await client.query(
     `DELETE FROM jobs WHERE client_id = ANY($1::uuid[]) OR worker_id = ANY($1::uuid[])`,
     [ids],
@@ -76,11 +77,14 @@ async function main(): Promise<void> {
 
     await client.query(
       `
-        INSERT INTO worker_profiles (user_id, verification_status, is_available, preferred_radius_km)
+        INSERT INTO worker_profiles (
+          user_id, verification_status, is_available, preferred_radius_km,
+          current_location, last_location_update
+        )
         VALUES
-          ($1, 'VERIFIED', TRUE, 20),
-          ($2, 'VERIFIED', TRUE, 20),
-          ($3, 'PENDING', FALSE, 20)
+          ($1, 'VERIFIED', TRUE, 20, ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), NOW()),
+          ($2, 'VERIFIED', TRUE, 20, ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), NOW()),
+          ($3, 'PENDING', FALSE, 20, ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), NOW())
       `,
       [workerA.id, workerB.id, pendingWorker.id],
     );
@@ -89,13 +93,13 @@ async function main(): Promise<void> {
       `
         INSERT INTO jobs (
           client_id, title, description, category, budget_cents, location, address, metadata,
-          public_title, public_description
+          public_title, public_description, escrow_status
         )
         VALUES (
           $1, 'Private client title', 'Private instructions: call the client at +15550001111 before arrival.', 'INSPECTION', 12500,
           ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), '350 5th Ave, New York, NY',
           '{"client_email":"must never reach workers before assignment"}'::jsonb,
-          'Storefront inspection', 'Inspect exterior signage and capture required measurements.'
+          'Storefront inspection', 'Inspect exterior signage and capture required measurements.', 'HELD'
         )
         RETURNING id
       `,
@@ -103,10 +107,10 @@ async function main(): Promise<void> {
     );
     const farJob = await client.query<{ id: string }>(
       `
-        INSERT INTO jobs (client_id, title, description, category, budget_cents, location)
+        INSERT INTO jobs (client_id, title, description, category, budget_cents, location, escrow_status)
         VALUES (
           $1, 'Far-away job', 'This job is outside the verification search radius.', 'INSPECTION', 9000,
-          ST_SetSRID(ST_MakePoint(-74.2857, 40.7484), 4326)
+          ST_SetSRID(ST_MakePoint(-74.2857, 40.7484), 4326), 'HELD'
         )
         RETURNING id
       `,
@@ -189,7 +193,7 @@ async function main(): Promise<void> {
 
     let response = await app.inject({
       method: "GET",
-      url: "/api/v1/worker/jobs/nearby?longitude=-73.9857&latitude=40.7484&radius_km=5",
+      url: "/api/v1/worker/jobs/nearby?radius_km=5",
       headers: bearer(workerAToken),
     });
     let body = parseEnvelope(response.body);
@@ -223,7 +227,7 @@ async function main(): Promise<void> {
 
     response = await app.inject({
       method: "GET",
-      url: "/api/v1/worker/jobs/nearby?longitude=-73.9857&latitude=40.7484&radius_km=5",
+      url: "/api/v1/worker/jobs/nearby?radius_km=5",
       headers: bearer(pendingWorkerToken),
     });
     body = parseEnvelope(response.body);
@@ -231,7 +235,7 @@ async function main(): Promise<void> {
 
     response = await app.inject({
       method: "GET",
-      url: "/api/v1/worker/jobs/nearby?longitude=-73.9857&latitude=40.7484&radius_km=5",
+      url: "/api/v1/worker/jobs/nearby?radius_km=5",
       headers: bearer(clientToken),
     });
     body = parseEnvelope(response.body);
@@ -241,7 +245,7 @@ async function main(): Promise<void> {
       method: "PATCH",
       url: `/api/v1/admin/workers/${pendingWorker.id}/verification`,
       headers: bearer(clientToken),
-      payload: { verification_status: "VERIFIED", is_available: true },
+      payload: { verification_status: "VERIFIED", is_available: true, reason: "Verifier authorization check" },
     });
     body = parseEnvelope(response.body);
     assert(response.statusCode === 403 && body.error?.code === "FORBIDDEN", "CLIENT token cannot verify workers");
@@ -250,23 +254,24 @@ async function main(): Promise<void> {
       method: "PATCH",
       url: `/api/v1/admin/workers/${pendingWorker.id}/verification`,
       headers: bearer(adminToken),
-      payload: { verification_status: "VERIFIED", is_available: true },
+      payload: { verification_status: "VERIFIED", is_available: true, reason: "Verified onboarding review" },
     });
     body = parseEnvelope(response.body);
     assert(response.statusCode === 200 && body.success, "ADMIN can verify and activate a worker");
 
     response = await app.inject({
       method: "GET",
-      url: "/api/v1/worker/jobs/nearby?longitude=-73.9857&latitude=40.7484&radius_km=5",
+      url: "/api/v1/worker/jobs/nearby?radius_km=5",
       headers: bearer(pendingWorkerToken),
     });
     body = parseEnvelope(response.body);
     assert(response.statusCode === 200 && body.success, "newly verified worker can access discovery");
 
     response = await app.inject({
-      method: "GET",
-      url: "/api/v1/worker/jobs/nearby?longitude=200&latitude=40.7484",
+      method: "POST",
+      url: "/api/v1/worker/location",
       headers: bearer(workerAToken),
+      payload: { longitude: 200, latitude: 40.7484 },
     });
     body = parseEnvelope(response.body);
     assert(response.statusCode === 400 && body.error?.code === "VALIDATION_ERROR", "invalid coordinates are rejected");
@@ -306,7 +311,7 @@ async function main(): Promise<void> {
       method: "PATCH",
       url: `/api/v1/admin/workers/${workerA.id}/verification`,
       headers: bearer(adminToken),
-      payload: { verification_status: "VERIFIED", is_available: true },
+      payload: { verification_status: "VERIFIED", is_available: true, reason: "Attempt busy-worker reactivation" },
     });
     body = parseEnvelope(response.body);
     assert(
@@ -345,7 +350,7 @@ async function main(): Promise<void> {
 
     response = await app.inject({
       method: "GET",
-      url: "/api/v1/worker/jobs/nearby?longitude=-73.9857&latitude=40.7484&radius_km=5",
+      url: "/api/v1/worker/jobs/nearby?radius_km=5",
     });
     body = parseEnvelope(response.body);
     assert(response.statusCode === 401 && body.error?.code === "TOKEN_MISSING", "worker routes require authentication");

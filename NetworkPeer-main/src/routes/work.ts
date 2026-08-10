@@ -11,11 +11,11 @@ const locationSchema = z
     z.object({
       type: z.literal("Point"),
       coordinates: z.tuple([z.number().finite().min(-180).max(180), z.number().finite().min(-90).max(90)]),
-    }),
+    }).strict(),
     z.object({
       latitude: z.number().finite().min(-90).max(90),
       longitude: z.number().finite().min(-180).max(180),
-    }),
+    }).strict(),
   ])
   .transform((value): Point =>
     "type" in value
@@ -33,14 +33,14 @@ const uploadUrlSchema = z.object({
   location: locationSchema.optional(),
   checksum_sha256: z.string().regex(/^[0-9a-f]{64}$/, "must be a lowercase SHA-256 hex digest"),
   idempotency_key: z.string().trim().min(8).max(255),
-});
+}).strict();
 
-const mediaIdSchema = z.object({ media_id: z.string().uuid() });
-const submitSchema = z.object({ job_id: z.string().uuid() });
+const mediaIdSchema = z.object({ media_id: z.string().uuid() }).strict();
+const submitSchema = z.object({ job_id: z.string().uuid() }).strict();
 const progressSchema = z.object({
   job_id: z.string().uuid(),
   status: z.enum(["EN_ROUTE", "AT_LOCATION", "IN_PROGRESS"]),
-});
+}).strict();
 
 export type WorkRoutesOptions = {
   evidenceService?: WorkEvidenceService;

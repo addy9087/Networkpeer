@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import pg from "pg";
 import { config } from "../src/config.js";
 
@@ -15,12 +16,17 @@ async function runMigrations() {
       CREATE TABLE IF NOT EXISTS schema_migrations (
         id SERIAL PRIMARY KEY,
         filename TEXT NOT NULL UNIQUE,
+        checksum CHAR(64),
         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
 
-    const { rows } = await client.query(`SELECT filename FROM schema_migrations`);
-    const applied = new Set(rows.map((r) => r.filename));
+    await client.query(`ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum CHAR(64)`);
+
+    const { rows } = await client.query<{ filename: string; checksum: string | null }>(
+      `SELECT filename, checksum FROM schema_migrations`,
+    );
+    const applied = new Map(rows.map((row) => [row.filename, row.checksum]));
 
     const files = fs
       .readdirSync(MIGRATIONS_DIR)
@@ -28,8 +34,19 @@ async function runMigrations() {
       .sort();
 
     for (const file of files) {
-      if (applied.has(file)) continue;
       const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
+      const checksum = createHash("sha256").update(sql).digest("hex");
+      const appliedChecksum = applied.get(file);
+      if (applied.has(file)) {
+        // Existing installations predate checksums. Baseline their current
+        // migration source once, then fail closed on any later source edit.
+        if (appliedChecksum === null) {
+          await client.query(`UPDATE schema_migrations SET checksum = $2 WHERE filename = $1`, [file, checksum]);
+        } else if (appliedChecksum !== checksum) {
+          throw new Error(`Applied migration checksum mismatch: ${file}`);
+        }
+        continue;
+      }
       // Accept a UTF-8 BOM or whitespace before the marker so concurrent index
       // migrations cannot accidentally be wrapped in BEGIN/COMMIT.
       const nonTransactional = /^[\uFEFF \t\r\n]*-- @nontransactional(?:\r?\n|$)/.test(sql);
@@ -46,7 +63,7 @@ async function runMigrations() {
         for (const statement of statements) {
           await client.query(statement);
         }
-        await client.query(`INSERT INTO schema_migrations (filename) VALUES ($1)`, [file]);
+        await client.query(`INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)`, [file, checksum]);
         if (!nonTransactional) await client.query("COMMIT");
       } catch (err) {
         if (!nonTransactional) await client.query("ROLLBACK");

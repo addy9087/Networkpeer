@@ -5,24 +5,26 @@ import { AuthError } from "../auth.js";
 import { requireAuth } from "../middleware/auth.js";
 import { ok, fail } from "../contracts.js";
 import { parseBody } from "../utils/validation.js";
+import { config } from "../config.js";
 
 const phoneSchema = z
   .string()
+  .trim()
   .regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format, e.g. +1234567890");
 
 const requestOtpSchema = z.object({
   phone_number: phoneSchema,
-});
+}).strict();
 
 const verifyOtpSchema = z.object({
   phone_number: phoneSchema,
   otp: z.string().regex(/^\d{4,8}$/, "OTP must be 4-8 digits"),
-  role: z.enum(["CLIENT", "WORKER"]).optional().default("CLIENT"),
-});
+  role: z.enum(["CLIENT", "WORKER"]).optional(),
+}).strict();
 
 const refreshSchema = z.object({
   refresh_token: z.string().min(1),
-});
+}).strict();
 
 export default async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/auth/otp/request", async (request, reply) => {
@@ -93,6 +95,9 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
 function handleAuthError(request: FastifyRequest, reply: FastifyReply, err: unknown): unknown {
   if (err instanceof AuthError) {
     request.log.warn({ code: err.code }, "authentication request rejected");
+    if (err.statusCode === 429) {
+      reply.header("Retry-After", String(Math.ceil(config.OTP_RATE_LIMIT_WINDOW_MS / 1000)));
+    }
     return reply.code(err.statusCode).send(fail(err.code, err.message));
   }
 

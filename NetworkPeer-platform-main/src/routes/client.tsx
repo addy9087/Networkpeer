@@ -1,14 +1,17 @@
 import { createFileRoute, Outlet, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Bell, Briefcase, LayoutDashboard, PlusCircle, Wallet } from "lucide-react";
 
 import { PortalShell, type NavItem } from "@/components/shell/portal-shell";
+import { api } from "@/lib/api";
+import { useAuthSession } from "@/lib/auth-session";
 
-const nav: NavItem[] = [
+const baseNav: NavItem[] = [
   { label: "Dashboard", to: "/client", icon: LayoutDashboard },
   { label: "My jobs", to: "/client/jobs", icon: Briefcase, badge: "6" },
   { label: "Post a job", to: "/client/jobs/new", icon: PlusCircle },
   { label: "Wallet", to: "/client/wallet", icon: Wallet },
-  { label: "Notifications", to: "/client/notifications", icon: Bell, badge: "2" },
+  { label: "Notifications", to: "/client/notifications", icon: Bell },
 ];
 
 export const Route = createFileRoute("/client")({
@@ -16,6 +19,18 @@ export const Route = createFileRoute("/client")({
 });
 
 function ClientLayout() {
+  const session = useAuthSession();
+  const notifications = useQuery({
+    queryKey: ["notifications"],
+    queryFn: api.notifications,
+    enabled: Boolean(session),
+  });
+  const unread =
+    notifications.data?.items.filter((notification) => notification.read_at === null).length ?? 0;
+  const nav = baseNav.map((item) =>
+    item.to === "/client/notifications" && unread > 0 ? { ...item, badge: String(unread) } : item,
+  );
+
   return (
     <PortalShell
       className="client-portal-root text-base"

@@ -6,6 +6,7 @@
 import {
   AuthError,
   generateOtp,
+  hashOtp,
   otpMatches,
   getStoredOtpHash,
   storeOtp,
@@ -32,7 +33,12 @@ export class OtpService {
    * In production the code is sent via an SMS/notification provider (no echo);
    * in dev/test the code is returned so the flow can be exercised.
    */
-  async request(phone: string): Promise<{ expiresInSeconds: number; otp?: string; delivery: OtpDelivery }> {
+  async request(phone: string): Promise<{
+    expiresInSeconds: number;
+    otpLength: number;
+    otp?: string;
+    delivery: OtpDelivery;
+  }> {
     const limited = await isRateLimited(
       REQUEST_RATE_KEY(phone),
       config.OTP_RATE_LIMIT_WINDOW_MS,
@@ -54,11 +60,24 @@ export class OtpService {
         ? { transport: "log", to: phone }
         : { transport: "sms", to: phone };
 
-    await smsProvider.send(phone, renderOtpMessage(otp, config.OTP_TTL_SECONDS));
+    try {
+      await smsProvider.send(phone, renderOtpMessage(otp, config.OTP_TTL_SECONDS));
+    } catch {
+      // Do not leave a server-side code valid if the provider definitively
+      // rejected delivery. Compare-and-delete avoids removing a concurrent
+      // retry's newer OTP.
+      await consumeStoredOtp(phone, hashOtp(otp)).catch(() => false);
+      throw new AuthError(
+        "OTP_DELIVERY_FAILED",
+        "We could not deliver a verification code. Please try again shortly.",
+        503,
+      );
+    }
 
     const echo = config.OTP_ECHO_IN_RESPONSE === "true";
     return {
       expiresInSeconds: config.OTP_TTL_SECONDS,
+      otpLength: config.OTP_LENGTH,
       otp: echo ? otp : undefined,
       delivery,
     };

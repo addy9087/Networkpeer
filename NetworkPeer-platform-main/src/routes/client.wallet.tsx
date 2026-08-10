@@ -1,165 +1,173 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowDownLeft, ArrowUpRight, Download, FileText, Plus, Wallet } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowDownLeft, ArrowUpRight, CircleAlert, RefreshCw, Wallet } from "lucide-react";
 
-import { cn, formatCurrency } from "@/lib/utils";
+import { api, ApiError, type WalletBalance } from "@/lib/api";
+import { formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shell/portal-shell";
-import { Chip, SectionCard, StatCard } from "@/components/marketplace/primitives";
-import { transactions } from "@/lib/mock-data";
+import { SectionCard, StatCard } from "@/components/marketplace/primitives";
 
 export const Route = createFileRoute("/client/wallet")({
   head: () => ({
     meta: [
-      { title: "Wallet & invoices — NetworkPeers client" },
-      {
-        name: "description",
-        content:
-          "Track escrow holds, spend, transactions and downloadable invoices for your NetworkPeers jobs.",
-      },
-      { property: "og:title", content: "Wallet & invoices — NetworkPeers client" },
-      { property: "og:description", content: "Escrow, spend and invoices in one place." },
+      { title: "Wallet - NetworkPeers client" },
+      { name: "description", content: "Authoritative escrow and ledger balance summary." },
     ],
   }),
   component: ClientWallet,
 });
 
-const invoices = [
-  { id: "INV-2026-118", period: "July 2026", amount: 486.5, status: "Due Aug 5" },
-  { id: "INV-2026-102", period: "June 2026", amount: 1204.0, status: "Paid" },
-  { id: "INV-2026-087", period: "May 2026", amount: 942.25, status: "Paid" },
-];
+function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) return `${error.code}: ${error.message}`;
+  return "Unable to load wallet balances. Check your connection and try again.";
+}
+
+function asCents(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed / 100 : 0;
+}
 
 function ClientWallet() {
+  const [balances, setBalances] = useState<WalletBalance[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadWallet = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const result = await api.clientWallet();
+      setBalances(result.balances);
+      setError(null);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadWallet();
+  }, [loadWallet]);
+
+  const totals = useMemo(
+    () =>
+      balances.reduce(
+        (result, balance) => ({
+          available: result.available + asCents(balance.availableBalanceCents),
+          escrow: result.escrow + asCents(balance.pendingEscrowCents),
+          spent: result.spent + asCents(balance.lifetimeSpendCents),
+          earned: result.earned + asCents(balance.lifetimeEarningsCents),
+        }),
+        { available: 0, escrow: 0, spent: 0, earned: 0 },
+      ),
+    [balances],
+  );
+
   return (
     <>
       <PageHeader
         title="Wallet"
-        description="Escrow balance, spend history and invoices"
+        description="Live balances derived from immutable, double-entry ledger postings."
         action={
-          <button className="press gradient-brand shadow-glow inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-base font-semibold text-primary-foreground">
-            <Plus className="h-4 w-4" /> Top up
+          <button
+            type="button"
+            onClick={() => void loadWallet()}
+            disabled={isLoading}
+            className="press inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2.5 text-base font-semibold disabled:opacity-60"
+          >
+            <RefreshCw className={isLoading ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> Refresh
+            balances
           </button>
         }
       />
 
+      {error ? (
+        <p
+          role="alert"
+          className="mb-6 flex gap-2 rounded-xl bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+        </p>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Available balance"
-          value={formatCurrency(1284)}
+          value={formatCurrency(totals.available)}
           icon={Wallet}
-          delta={8}
-          hint="ready to spend"
+          hint="settled ledger balance"
         />
         <StatCard
           label="Held in escrow"
-          value={formatCurrency(312)}
+          value={formatCurrency(totals.escrow)}
           icon={ArrowUpRight}
           tone="warning"
-          hint="4 active jobs"
+          hint="funded active work"
         />
         <StatCard
-          label="Spent this month"
-          value={formatCurrency(486)}
+          label="Lifetime spend"
+          value={formatCurrency(totals.spent)}
           icon={ArrowDownLeft}
           tone="teal"
-          delta={-4}
+          hint="completed client settlements"
         />
         <StatCard
-          label="Pending earnings back"
-          value={formatCurrency(62)}
+          label="Lifetime earnings"
+          value={formatCurrency(totals.earned)}
           icon={ArrowDownLeft}
           tone="success"
-          hint="refunds clearing"
+          hint="credits recorded to this account"
         />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <SectionCard
-          title="Transactions"
-          description="Escrow holds, payouts and top-ups"
-          action={
-            <button className="press inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-base font-medium">
-              <Download className="h-4 w-4" /> Export
-            </button>
-          }
+          title="Currency ledger summary"
+          description="Each row is calculated server-side; browser totals never determine settlement."
         >
-          <ul className="divide-y divide-border">
-            {transactions.map((t) => (
-              <li
-                key={t.id}
-                className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 py-3"
-              >
-                <span
-                  className={cn(
-                    "grid h-9 w-9 place-items-center rounded-xl",
-                    t.amount >= 0 ? "bg-success/20 text-success" : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {t.amount >= 0 ? (
-                    <ArrowDownLeft className="h-4 w-4" />
-                  ) : (
-                    <ArrowUpRight className="h-4 w-4" />
-                  )}
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-base font-medium">{t.label}</p>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {t.ref} · {t.date}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p
-                    className={cn(
-                      "text-base font-semibold tabular-nums",
-                      t.amount >= 0 && "text-success",
-                    )}
-                  >
-                    {t.amount >= 0 ? "+" : "−"}
-                    {formatCurrency(Math.abs(t.amount))}
-                  </p>
-                  {t.type === "pending" && <Chip tone="warning">Escrow</Chip>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
-
-        <div className="space-y-6">
-          <SectionCard title="Payment method">
-            <div className="gradient-brand shadow-glow rounded-2xl p-5 text-primary-foreground">
-              <p className="text-sm opacity-80">Primary card</p>
-              <p className="mt-6 text-xl font-semibold tracking-widest">•••• •••• •••• 4421</p>
-              <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] text-sm opacity-90">
-                <span>Verified Client</span>
-                <span>09 / 29</span>
-              </div>
-            </div>
-            <button className="press mt-3 h-10 w-full rounded-xl border border-border bg-card text-base font-semibold">
-              Manage payment methods
-            </button>
-          </SectionCard>
-
-          <SectionCard title="Invoices">
-            <ul className="space-y-3">
-              {invoices.map((inv) => (
-                <li
-                  key={inv.id}
-                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border p-3"
-                >
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary-soft text-primary">
-                    <FileText className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-medium">{inv.id}</p>
-                    <p className="truncate text-sm text-muted-foreground">
-                      {inv.period} · {formatCurrency(inv.amount)}
+          {isLoading ? (
+            <div className="h-28 animate-pulse rounded-xl bg-muted" />
+          ) : balances.length === 0 ? (
+            <p className="text-base text-muted-foreground">
+              No completed ledger postings are available yet.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {balances.map((balance) => (
+                <li key={balance.currency} className="grid gap-3 py-4 sm:grid-cols-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Currency</p>
+                    <p className="font-semibold">{balance.currency}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Available</p>
+                    <p className="font-semibold">
+                      {formatCurrency(asCents(balance.availableBalanceCents))}
                     </p>
                   </div>
-                  <Chip tone={inv.status === "Paid" ? "success" : "warning"}>{inv.status}</Chip>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Escrow</p>
+                    <p className="font-semibold">
+                      {formatCurrency(asCents(balance.pendingEscrowCents))}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Lifetime spend</p>
+                    <p className="font-semibold">
+                      {formatCurrency(asCents(balance.lifetimeSpendCents))}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>
-          </SectionCard>
-        </div>
+          )}
+        </SectionCard>
+        <SectionCard title="Settlement guarantee">
+          <p className="text-base leading-relaxed text-muted-foreground">
+            Escrow is released only after the client approves submitted evidence. Payout delivery
+            remains separately tracked until the payment gateway webhook confirms it.
+          </p>
+        </SectionCard>
       </div>
     </>
   );

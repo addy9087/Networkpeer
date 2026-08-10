@@ -47,7 +47,7 @@ class FakeMediaStorage implements MediaStorage {
     return this.states.get(`${bucket}/${key}/${versionId}`) ?? null;
   }
 
-  async headObject(input: { bucket: string; key: string }): Promise<StoredMediaObject> {
+  async headObject(input: { bucket: string; key: string; versionId?: string }): Promise<StoredMediaObject> {
     const object = this.objects.get(input.key);
     if (!object) {
       const error = Object.assign(new Error(`Object ${input.bucket}/${input.key} not found`), {
@@ -140,10 +140,10 @@ async function main(): Promise<void> {
     );
     const jobResult = await client.query<{ id: string }>(
       `
-        INSERT INTO jobs (client_id, title, description, category, budget_cents, location)
+        INSERT INTO jobs (client_id, title, description, category, budget_cents, location, escrow_status)
         VALUES (
           $1, 'Evidence verification job', 'Capture two required pieces of field evidence.', 'INSPECTION', 10000,
-          ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326)
+          ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), 'HELD'
         )
         RETURNING id
       `,
@@ -446,7 +446,7 @@ async function main(): Promise<void> {
       payload: { job_id: jobId },
     });
     body = parseEnvelope(response.body);
-    assert(response.statusCode === 409 && body.error?.code === "JOB_NOT_READY_FOR_SUBMISSION", "submitted work cannot be submitted again");
+    assert(response.statusCode === 200 && body.data?.["status"] === "SUBMITTED", "submitted work retries idempotently");
 
     // eslint-disable-next-line no-console
     console.log("\nPhase 5 verification complete: all checks passed.");

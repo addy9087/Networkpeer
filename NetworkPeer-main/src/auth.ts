@@ -330,15 +330,38 @@ function refreshFamilyKey(family: string): string {
   return `refresh:family:${family}`;
 }
 
-async function storeRefreshSession(jti: string, sub: string, family: string): Promise<void> {
-  const transaction = redis.multi();
-  transaction.set(refreshSessionKey(jti), `${sub}|${family}`, "EX", REFRESH_TOKEN_TTL_SECONDS);
-  transaction.sadd(refreshFamilyKey(family), jti);
-  transaction.expire(refreshFamilyKey(family), REFRESH_TOKEN_TTL_SECONDS);
-  const results = await transaction.exec();
-  if (!results || results.some(([err]) => err)) {
-    throw new Error("Unable to persist refresh-token session");
-  }
+function refreshUserFamiliesKey(userId: string): string {
+  return `refresh:user:${userId}:families`;
+}
+
+function refreshUserRevokedKey(userId: string): string {
+  return `refresh:user:${userId}:revoked`;
+}
+
+async function storeRefreshSession(jti: string, sub: string, family: string): Promise<boolean> {
+  const result = await redis.eval(
+    `
+      if redis.call('EXISTS', KEYS[4]) == 1 then
+        return 0
+      end
+      redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+      redis.call('SADD', KEYS[2], ARGV[3])
+      redis.call('EXPIRE', KEYS[2], ARGV[2])
+      redis.call('SADD', KEYS[3], ARGV[4])
+      redis.call('EXPIRE', KEYS[3], ARGV[2])
+      return 1
+    `,
+    4,
+    refreshSessionKey(jti),
+    refreshFamilyKey(family),
+    refreshUserFamiliesKey(sub),
+    refreshUserRevokedKey(sub),
+    `${sub}|${family}`,
+    String(REFRESH_TOKEN_TTL_SECONDS),
+    jti,
+    family,
+  );
+  return Number(result) === 1;
 }
 
 async function getRefreshSession(jti: string): Promise<{ sub: string; family: string } | null> {
@@ -349,7 +372,7 @@ async function getRefreshSession(jti: string): Promise<{ sub: string; family: st
   return { sub, family };
 }
 
-async function revokeRefreshFamily(family: string): Promise<void> {
+async function revokeRefreshFamily(family: string, userId: string): Promise<void> {
   await redis.eval(
     `
       local members = redis.call('SMEMBERS', KEYS[1])
@@ -357,10 +380,38 @@ async function revokeRefreshFamily(family: string): Promise<void> {
         redis.call('DEL', ARGV[1] .. jti)
       end
       redis.call('DEL', KEYS[1])
+      redis.call('SREM', KEYS[2], ARGV[2])
     `,
-    1,
+    2,
     refreshFamilyKey(family),
+    refreshUserFamiliesKey(userId),
     "refresh:",
+    family,
+  );
+}
+
+/** Revokes every indexed refresh family and blocks legacy unindexed sessions. */
+export async function revokeAllRefreshTokenFamiliesForUser(userId: string): Promise<void> {
+  await redis.eval(
+    `
+      local families = redis.call('SMEMBERS', KEYS[1])
+      for _, family in ipairs(families) do
+        local familyKey = ARGV[1] .. family
+        local members = redis.call('SMEMBERS', familyKey)
+        for _, jti in ipairs(members) do
+          redis.call('DEL', ARGV[2] .. jti)
+        end
+        redis.call('DEL', familyKey)
+      end
+      redis.call('DEL', KEYS[1])
+      redis.call('SET', KEYS[2], '1', 'EX', ARGV[3])
+    `,
+    2,
+    refreshUserFamiliesKey(userId),
+    refreshUserRevokedKey(userId),
+    "refresh:family:",
+    "refresh:",
+    String(REFRESH_TOKEN_TTL_SECONDS),
   );
 }
 
@@ -369,9 +420,13 @@ async function consumeAndReplaceRefreshSession(
   expectedSession: string,
   newJti: string,
   family: string,
+  userId: string,
 ): Promise<boolean> {
   const result = await redis.eval(
     `
+      if redis.call('EXISTS', KEYS[5]) == 1 then
+        return 0
+      end
       local existing = redis.call('GET', KEYS[1])
       if not existing or existing ~= ARGV[1] then
         return 0
@@ -381,17 +436,22 @@ async function consumeAndReplaceRefreshSession(
       redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[3])
       redis.call('SADD', KEYS[3], ARGV[2])
       redis.call('EXPIRE', KEYS[3], ARGV[3])
+      redis.call('SADD', KEYS[4], ARGV[5])
+      redis.call('EXPIRE', KEYS[4], ARGV[3])
       return 1
     `,
-    3,
+    5,
     refreshSessionKey(oldJti),
     refreshSessionKey(newJti),
     refreshFamilyKey(family),
+    refreshUserFamiliesKey(userId),
+    refreshUserRevokedKey(userId),
     expectedSession,
     newJti,
     String(REFRESH_TOKEN_TTL_SECONDS),
     oldJti,
-   );
+    family,
+  );
   return Number(result) === 1;
 }
 
@@ -409,12 +469,12 @@ export async function rotateRefreshToken(
 
   if (!session) {
     // Token already rotated or revoked -> possible theft -> kill the family.
-    await revokeRefreshFamily(claims.family);
+    await revokeRefreshFamily(claims.family, claims.sub);
     throw new AuthError("TOKEN_REUSED", "Refresh token has already been used", 401);
   }
 
   if (session.sub !== claims.sub || session.family !== claims.family) {
-    await revokeRefreshFamily(claims.family);
+    await revokeRefreshFamily(claims.family, claims.sub);
     throw new AuthError("TOKEN_REUSED", "Refresh token session mismatch", 401);
   }
 
@@ -427,9 +487,10 @@ export async function rotateRefreshToken(
     `${session.sub}|${session.family}`,
     payload.jti,
     family,
+    session.sub,
   );
   if (!consumed) {
-    await revokeRefreshFamily(claims.family);
+    await revokeRefreshFamily(claims.family, claims.sub);
     throw new AuthError("TOKEN_REUSED", "Refresh token has already been used", 401);
   }
 
@@ -437,7 +498,7 @@ export async function rotateRefreshToken(
   try {
     user = await fetchUserForClaims(session.sub);
   } catch (err) {
-    await revokeRefreshFamily(family);
+    await revokeRefreshFamily(family, session.sub);
     throw err;
   }
   const access_token = issueAccess(user);
@@ -461,7 +522,9 @@ export async function issueTokenPair(
   const refresh_token = signRefreshToken({ sub: user.id, family });
   const [, payloadSegment] = refresh_token.split(".") as [string, string];
   const payload = decodeJsonSegment<RefreshTokenClaims>(payloadSegment, "payload");
-  await storeRefreshSession(payload.jti, user.id, family);
+  if (!await storeRefreshSession(payload.jti, user.id, family)) {
+    throw new AuthError("USER_NOT_AUTHORIZED", "User is not authorized", 403);
+  }
   const access_token = issueAccess(user);
   return { access_token, refresh_token, expires_in: ACCESS_TOKEN_TTL_SECONDS, user };
 }
@@ -474,7 +537,7 @@ export async function revokeRefreshToken(oldToken: string, expectedUserId?: stri
   if (expectedUserId && claims.sub !== expectedUserId) {
     throw new AuthError("TOKEN_WRONG_SUBJECT", "Refresh token does not belong to this user", 403);
   }
-  await revokeRefreshFamily(claims.family);
+  await revokeRefreshFamily(claims.family, claims.sub);
 }
 
 // ---------------------------------------------------------------------------

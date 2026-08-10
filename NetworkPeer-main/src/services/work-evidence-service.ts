@@ -108,7 +108,16 @@ function toEvidenceSummary(media: JobSubtaskMedia): EvidenceSummary {
 }
 
 export class WorkEvidenceService {
-  constructor(private readonly storage: MediaStorage = mediaStorage) {}
+  constructor(
+    private readonly storage: MediaStorage = mediaStorage,
+    private readonly onEvidenceUploaded?: (mediaId: string) => Promise<void>,
+  ) {}
+
+  private async kickMediaProcessing(mediaId: string): Promise<void> {
+    // The PostgreSQL outbox is authoritative. A failed immediate kick only
+    // delays processing until the periodic queue sweep repairs it.
+    await this.onEvidenceUploaded?.(mediaId).catch(() => undefined);
+  }
 
   private async requireVerifiedWorker(workerId: string): Promise<void> {
     const profile = await getWorkerJobProfile(workerId);
@@ -199,7 +208,19 @@ export class WorkEvidenceService {
     if (!media) {
       throw new WorkEvidenceServiceError("EVIDENCE_NOT_FOUND", "Evidence not found", 404);
     }
-    if (media.status === "UPLOADED") return toEvidenceSummary(media);
+    if (media.status === "UPLOADED") {
+      // A previous database commit may have succeeded while the tag write timed
+      // out. Retrying confirmation repairs the lifecycle-protection tag instead
+      // of treating an accepted version as pending evidence.
+      await this.storage.setObjectState({
+        bucket: media.s3_bucket,
+        key: media.s3_key,
+        versionId: media.s3_version_id as string,
+        state: "confirmed",
+      });
+      await this.kickMediaProcessing(media.id);
+      return toEvidenceSummary(media);
+    }
     if (media.status !== "PENDING") {
       throw new WorkEvidenceServiceError("EVIDENCE_NOT_ACCEPTING_UPLOAD", "Evidence cannot be confirmed", 409);
     }
@@ -253,19 +274,26 @@ export class WorkEvidenceService {
       if (!confirmed) {
         throw new WorkEvidenceServiceError("EVIDENCE_NOT_FOUND", "Evidence not found", 404);
       }
+      await this.kickMediaProcessing(confirmed.id);
       return toEvidenceSummary(confirmed);
     } catch (err) {
       if (markedConfirmed) {
-        try {
-          await this.storage.setObjectState({
-            bucket: media.s3_bucket,
-            key: media.s3_key,
-            versionId: object.versionId as string,
-            state: "pending",
-          });
-        } catch {
-          // A lifecycle rule handles failed evidence versions if this best-effort
-          // tag rollback is temporarily unavailable.
+        // A network error can occur after the database transaction committed.
+        // Only restore the pending tag after a durable read proves the media is
+        // still pending; otherwise preserve the confirmed tag for retention.
+        const persisted = await getMediaForWorker(mediaId, workerId).catch(() => null);
+        if (persisted?.status !== "UPLOADED") {
+          try {
+            await this.storage.setObjectState({
+              bucket: media.s3_bucket,
+              key: media.s3_key,
+              versionId: object.versionId as string,
+              state: "pending",
+            });
+          } catch {
+            // The pending tag is already lifecycle-safe when a rollback cannot
+            // be confirmed; a later retry will reconcile the final state.
+          }
         }
       }
       if (err instanceof WorkEvidenceServiceError) throw err;

@@ -79,8 +79,9 @@ describe("job state machine", () => {
     expect(nextStates("POSTED")).toEqual(expect.arrayContaining(["ASSIGNED", "CANCELLED"]));
   });
 
-  it("allows a client to cancel only a POSTED job", () => {
-    expect(canClientCancel("POSTED")).toBe(true);
+  it("allows a client to cancel only an unfunded FUNDING job", () => {
+    expect(canClientCancel("FUNDING")).toBe(true);
+    expect(canClientCancel("POSTED")).toBe(false);
     expect(canClientCancel("ASSIGNED")).toBe(false);
     expect(canClientCancel("IN_PROGRESS")).toBe(false);
     expect(canClientCancel("SUBMITTED")).toBe(false);

@@ -64,6 +64,7 @@ class TwilioSmsProvider implements SmsProvider {
         `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
         {
           method: "POST",
+          signal: AbortSignal.timeout(config.SMS_REQUEST_TIMEOUT_MS),
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
             Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
@@ -71,8 +72,8 @@ class TwilioSmsProvider implements SmsProvider {
           body,
         },
       );
-    } catch (err) {
-      throw new SmsSendError("twilio", `Twilio request failed: ${(err as Error).message}`);
+    } catch {
+      throw new SmsSendError("twilio", "Twilio request could not be completed");
     }
 
     if (!response.ok) {
@@ -81,6 +82,20 @@ class TwilioSmsProvider implements SmsProvider {
         "twilio",
         `Twilio responded ${response.status}: ${detail.slice(0, 300)}`,
       );
+    }
+
+    const result = await response.json().catch(() => null) as {
+      sid?: unknown;
+      status?: unknown;
+      error_code?: unknown;
+    } | null;
+    if (
+      typeof result?.sid !== "string" ||
+      result.error_code !== null && result.error_code !== undefined ||
+      result.status === "failed" ||
+      result.status === "undelivered"
+    ) {
+      throw new SmsSendError("twilio", "Twilio did not accept the SMS for delivery");
     }
   }
 }

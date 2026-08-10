@@ -4,11 +4,12 @@ import { fail, ok } from "../contracts.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { AdminWorkerServiceError, adminWorkerService } from "../services/admin-worker-service.js";
 
-const workerParamsSchema = z.object({ workerId: z.string().uuid() });
+const workerParamsSchema = z.object({ workerId: z.string().uuid() }).strict();
 const verificationSchema = z.object({
   verification_status: z.enum(["PENDING", "VERIFIED", "REJECTED", "SUSPENDED"]),
   is_available: z.boolean().default(false),
-});
+  reason: z.string().trim().min(3).max(2_000),
+}).strict();
 
 function handleAdminWorkerError(request: FastifyRequest, reply: FastifyReply, err: unknown): unknown {
   if (err instanceof AdminWorkerServiceError) {
@@ -30,10 +31,12 @@ export default async function adminWorkerRoutes(app: FastifyInstance): Promise<v
         return reply.code(400).send(fail("VALIDATION_ERROR", "Invalid worker verification update"));
       }
       try {
-        const profile = await adminWorkerService.setVerification(
-          params.data.workerId,
-          body.data.verification_status,
-          body.data.is_available,
+          const profile = await adminWorkerService.setVerification(
+            request.auth.userId,
+            params.data.workerId,
+            body.data.verification_status,
+            body.data.is_available,
+            body.data.reason,
         );
         return ok(profile);
       } catch (err) {

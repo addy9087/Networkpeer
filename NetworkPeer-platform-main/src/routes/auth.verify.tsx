@@ -4,121 +4,113 @@ import { ArrowLeft, CheckCircle2, Loader2, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthLayout } from "@/components/auth/auth-ui";
+import { ApiError, api } from "@/lib/api";
 import { isOtpCodeValid } from "@/lib/auth-flow";
+import { PENDING_OTP_KEY, type PendingOtp } from "@/routes/auth.index";
 
-export const Route = createFileRoute("/auth/verify")({
-  component: VerifyOtpPage,
-});
+export const Route = createFileRoute("/auth/verify")({ component: VerifyOtpPage });
 
-type PendingRegistration = {
-  email: string;
-  password: string;
-  phone: string;
-  countryCode: string;
-  role: "client" | "worker";
-  otp: string;
-};
-
-const PENDING_REGISTRATION_KEY = "networkpeers-pending-registration";
 const RESEND_SECONDS = 30;
+
+function errorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return "The request could not be completed. Please try again.";
+  }
+  if (error.retryAfterSeconds) {
+    return `${error.message} Retry in ${error.retryAfterSeconds} seconds.`;
+  }
+  return error.message;
+}
 
 function VerifyOtpPage() {
   const router = useRouter();
-  const [pending, setPending] = useState<PendingRegistration | null>(null);
+  const [pending, setPending] = useState<PendingOtp | null>(null);
   const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "success">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "resending">("idle");
   const [countdown, setCountdown] = useState(RESEND_SECONDS);
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const stored = window.sessionStorage.getItem(PENDING_REGISTRATION_KEY);
+    const stored = window.sessionStorage.getItem(PENDING_OTP_KEY);
     if (!stored) {
-      router.navigate({ to: "/auth" });
+      void router.navigate({ to: "/auth" });
       return;
     }
-
     try {
-      const parsed = JSON.parse(stored) as PendingRegistration;
-      setPending(parsed);
+      setPending(JSON.parse(stored) as PendingOtp);
     } catch {
-      window.sessionStorage.removeItem(PENDING_REGISTRATION_KEY);
-      router.navigate({ to: "/auth" });
+      window.sessionStorage.removeItem(PENDING_OTP_KEY);
+      void router.navigate({ to: "/auth" });
     }
   }, [router]);
 
   useEffect(() => {
-    if (countdown <= 0) {
-      return;
-    }
-
+    if (countdown <= 0) return;
     const timer = window.setTimeout(() => setCountdown((value) => value - 1), 1000);
     return () => window.clearTimeout(timer);
   }, [countdown]);
 
-  const handleOtpChange = (value: string) => {
-    const digits = value.replace(/\D/g, "").slice(0, 6);
-    setOtp(digits);
-    setError("");
-  };
-
-  const handleResend = () => {
-    if (!pending) {
+  const verify = async () => {
+    if (!pending) return;
+    const otpLength = pending.otpLength ?? 6;
+    if (!isOtpCodeValid(otp, otpLength)) {
+      setError(`Enter the ${otpLength}-digit verification code.`);
       return;
     }
-
-    setCountdown(RESEND_SECONDS);
-    setOtp("");
-    setError("");
-    toast.success(`A fresh verification code was sent to ${pending.countryCode}${pending.phone}.`);
-  };
-
-  const handleVerify = () => {
-    if (!pending) {
-      setError("No pending registration found. Please restart the sign-up process.");
-      return;
-    }
-
-    if (!isOtpCodeValid(otp)) {
-      setError("Enter the 6-digit verification code.");
-      return;
-    }
-
-    if (otp !== pending.otp) {
-      setError("The verification code is invalid or expired. Please request a new code.");
-      return;
-    }
-
     setStatus("loading");
+    setError("");
+    try {
+      const session = await api.verifyOtp(pending.phoneNumber, otp, pending.role);
+      window.sessionStorage.removeItem(PENDING_OTP_KEY);
+      toast.success("Phone verified. Your session is ready.");
+      await router.navigate({ to: session.user.role === "CLIENT" ? "/client" : "/worker" });
+    } catch (requestError) {
+      const message = errorMessage(requestError);
+      setError(message);
+      toast.error(message);
+      setStatus("idle");
+    }
+  };
 
-    window.setTimeout(() => {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(PENDING_REGISTRATION_KEY);
-      }
-      setStatus("success");
-      toast.success("Phone verified. Your account is ready.");
-      router.navigate({ to: pending.role === "client" ? "/client" : "/worker" });
-    }, 700);
+  const resend = async () => {
+    if (!pending || status !== "idle") return;
+    setStatus("resending");
+    setError("");
+    try {
+      const result = await api.requestOtp(pending.phoneNumber);
+      setPending((current) => {
+        if (!current) return current;
+        const next = { ...current, otpLength: result.otpLength };
+        window.sessionStorage.setItem(PENDING_OTP_KEY, JSON.stringify(next));
+        return next;
+      });
+      setCountdown(RESEND_SECONDS);
+      setOtp("");
+      setError("");
+      toast.success("A fresh verification code was sent.");
+    } catch (requestError) {
+      const message = errorMessage(requestError);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setStatus("idle");
+    }
   };
 
   return (
     <AuthLayout
-      eyebrow="Secure sign-up"
+      eyebrow="Secure sign-in"
       heading="Verify your number"
-      sub="We send a one-time passcode to your phone to protect your account."
+      sub="Enter the one-time code sent to your phone."
     >
       <div className="w-full rounded-3xl border border-border bg-card/80 p-6 shadow-lift">
         <Link
           to="/auth"
           className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="h-4 w-4" /> Back to registration
+          <ArrowLeft className="h-4 w-4" /> Back to sign in
         </Link>
-
         <div className="mt-5 flex items-center gap-3 rounded-2xl border border-border bg-muted/70 p-3">
           <div className="grid h-10 w-10 place-items-center rounded-2xl bg-primary-soft text-primary">
             <Smartphone className="h-5 w-5" />
@@ -126,15 +118,16 @@ function VerifyOtpPage() {
           <div>
             <p className="text-sm font-semibold text-foreground">Code sent to</p>
             <p className="text-sm text-muted-foreground">
-              {pending ? `${pending.countryCode} ${pending.phone}` : "your phone number"}
+              {pending?.displayPhone ?? "your phone number"}
             </p>
           </div>
         </div>
-
         <div className="mt-6">
-          <label className="text-sm font-medium text-foreground">Enter 6-digit code</label>
+          <label className="text-sm font-medium text-foreground">
+            Enter {pending?.otpLength ?? 6}-digit code
+          </label>
           <div className="mt-3 flex gap-2">
-            {Array.from({ length: 6 }).map((_, index) => (
+            {Array.from({ length: pending?.otpLength ?? 6 }).map((_, index) => (
               <input
                 key={index}
                 ref={(element) => {
@@ -144,23 +137,17 @@ function VerifyOtpPage() {
                 autoFocus={index === 0}
                 value={otp[index] ?? ""}
                 onChange={(event) => {
-                  const next = event.target.value.replace(/\D/g, "");
-                  const nextOtp = otp.split("");
-                  nextOtp[index] = next.slice(-1);
-                  const updated = nextOtp.join("");
-                  handleOtpChange(updated);
-                  if (next && index < 5) {
-                    inputRefs.current[index + 1]?.focus();
-                  }
+                  const next = event.target.value.replace(/\D/g, "").slice(-1);
+                  const values = otp.padEnd(6, " ").split("");
+                  values[index] = next;
+                  const updated = values.join("").replace(/\s+$/g, "");
+                  setOtp(updated);
+                  setError("");
+                  if (next && index < 5) inputRefs.current[index + 1]?.focus();
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Backspace" && !otp[index] && index > 0) {
-                    const previousOtp = otp.split("");
-                    previousOtp[index - 1] = "";
-                    const updated = previousOtp.join("");
-                    handleOtpChange(updated);
+                  if (event.key === "Backspace" && !otp[index] && index > 0)
                     inputRefs.current[index - 1]?.focus();
-                  }
                 }}
                 className="h-12 w-full rounded-xl border border-border bg-background text-center text-lg font-semibold outline-none focus:ring-2 focus:ring-ring/40"
               />
@@ -168,10 +155,15 @@ function VerifyOtpPage() {
           </div>
           {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
         </div>
-
+        {pending?.developmentOtp ? (
+          <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+            Development OTP:{" "}
+            <span className="font-semibold tracking-widest">{pending.developmentOtp}</span>
+          </p>
+        ) : null}
         <button
           type="button"
-          onClick={handleVerify}
+          onClick={() => void verify()}
           disabled={status === "loading"}
           className="mt-5 flex h-12 w-full items-center justify-center rounded-xl bg-primary px-4 text-base font-semibold text-primary-foreground disabled:opacity-80"
         >
@@ -185,22 +177,21 @@ function VerifyOtpPage() {
             </>
           )}
         </button>
-
         <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-          <button
-            type="button"
-            onClick={() => router.navigate({ to: "/auth" })}
-            className="font-medium text-primary hover:underline"
-          >
+          <Link to="/auth" className="font-medium text-primary hover:underline">
             Edit phone number
-          </button>
+          </Link>
           <button
             type="button"
-            onClick={handleResend}
-            disabled={countdown > 0}
+            onClick={() => void resend()}
+            disabled={countdown > 0 || status !== "idle"}
             className="font-medium text-primary hover:underline disabled:text-muted-foreground"
           >
-            {countdown > 0 ? `Resend code in ${countdown}s` : "Send OTP / Resend code"}
+            {status === "resending"
+              ? "Sending code..."
+              : countdown > 0
+                ? `Resend code in ${countdown}s`
+                : "Resend code"}
           </button>
         </div>
       </div>

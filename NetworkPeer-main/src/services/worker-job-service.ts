@@ -12,6 +12,7 @@ import {
   getWorkerVisibleJob,
   listNearbyPostedJobs,
   type WorkerJobProfile,
+  updateWorkerLocation,
 } from "../repository.js";
 
 export class WorkerJobServiceError extends Error {
@@ -28,7 +29,6 @@ export class WorkerJobServiceError extends Error {
 
 export type NearbyJobsParams = {
   workerId: string;
-  origin: Point;
   radiusKm?: number;
   page: number;
   perPage: number;
@@ -36,6 +36,7 @@ export type NearbyJobsParams = {
 
 const MAX_PAGE = 100;
 const MAX_PER_PAGE = 100;
+const WORKER_LOCATION_MAX_AGE_MS = 15 * 60 * 1000;
 
 function databaseErrorCode(err: unknown): string | null {
   if (typeof err !== "object" || err === null || !("code" in err)) return null;
@@ -81,12 +82,20 @@ export class WorkerJobService {
       );
     }
 
-    const search = {
-      origin: params.origin,
-      radiusMeters: radiusKm * 1000,
-    };
+    if (
+      !profile.currentLocation
+      || !profile.lastLocationUpdate
+      || Date.now() - profile.lastLocationUpdate.getTime() > WORKER_LOCATION_MAX_AGE_MS
+    ) {
+      throw new WorkerJobServiceError(
+        "WORKER_LOCATION_REQUIRED",
+        "Update your current location before searching for nearby jobs",
+        409,
+      );
+    }
     const rows = await listNearbyPostedJobs({
-      ...search,
+      workerId: params.workerId,
+      radiusMeters: radiusKm * 1000,
       limit: params.perPage + 1,
       offset: (params.page - 1) * params.perPage,
     });
@@ -112,6 +121,29 @@ export class WorkerJobService {
     }
     const subtasks = job.is_assigned_to_requester ? await getSubtasksByJob(jobId) : [];
     return { ...job, subtasks };
+  }
+
+  async updateLocation(workerId: string, location: Point): Promise<{ updated_at: Date }> {
+    await this.requireVerifiedWorker(workerId);
+    try {
+      return { updated_at: await updateWorkerLocation(workerId, location) };
+    } catch (err) {
+      const code = databaseErrorCode(err);
+      if (code === "22023") {
+        throw new WorkerJobServiceError("INVALID_LOCATION", "Location is outside supported bounds", 400);
+      }
+      if (code === "55000") {
+        throw new WorkerJobServiceError(
+          "LOCATION_UPDATE_RATE_LIMITED",
+          "Location was updated too recently",
+          429,
+        );
+      }
+      if (code === "P0002") {
+        throw new WorkerJobServiceError("WORKER_NOT_VERIFIED", "Worker verification is required", 403);
+      }
+      throw err;
+    }
   }
 
   async accept(workerId: string, jobId: string): Promise<WorkerJobDetail> {

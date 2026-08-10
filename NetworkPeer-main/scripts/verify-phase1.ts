@@ -136,19 +136,41 @@ async function main(): Promise<void> {
   );
 
   await client.query(
-    `INSERT INTO worker_profiles (user_id, is_available, verification_status)
-     VALUES ($1, TRUE, 'VERIFIED'), ($2, TRUE, 'VERIFIED'), ($3, TRUE, 'VERIFIED'), ($4, TRUE, 'VERIFIED')`,
+    `INSERT INTO worker_profiles (
+       user_id, is_available, verification_status, current_location, last_location_update
+     )
+     VALUES
+       ($1, TRUE, 'VERIFIED', ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), NOW()),
+       ($2, TRUE, 'VERIFIED', ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), NOW()),
+       ($3, TRUE, 'VERIFIED', ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), NOW()),
+       ($4, TRUE, 'VERIFIED', ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), NOW())`,
     [workerA.rows[0].id, workerB.rows[0].id, workerC.rows[0].id, workerD.rows[0].id],
   );
 
   const jobRes = await client.query(
-    `INSERT INTO jobs (client_id, title, description, category, budget_cents, location)
+    `INSERT INTO jobs (client_id, title, description, category, budget_cents, location, escrow_status)
      VALUES ($1, 'Clean office', 'Deep clean the HQ', 'CLEANING', 15000,
-             ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326))
+             ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326), 'HELD')
      RETURNING id, ST_AsGeoJSON(location) AS geo`,
     [clientId],
   );
   const jobId = jobRes.rows[0].id;
+  const subtask = await client.query(
+    `INSERT INTO job_subtasks (job_id, title, sequence_order) VALUES ($1, 'Evidence task', 0) RETURNING id`,
+    [jobId],
+  );
+
+  await check("a job cannot contain duplicate subtask sequence positions", async () => {
+    try {
+      await client.query(
+        `INSERT INTO job_subtasks (job_id, title, sequence_order) VALUES ($1, 'Duplicate position', 0)`,
+        [jobId],
+      );
+      throw new Error("expected duplicate subtask sequence to be rejected");
+    } catch (err) {
+      if ((err as pg.DatabaseError).code !== "23505") throw err;
+    }
+  });
 
   await check("spatial point round-trips via ST_AsGeoJSON", async () => {
     const geo = JSON.parse(jobRes.rows[0].geo);
@@ -314,23 +336,6 @@ async function main(): Promise<void> {
     }
   });
 
-  const subtask = await client.query(
-    `INSERT INTO job_subtasks (job_id, title, sequence_order) VALUES ($1, 'Evidence task', 0) RETURNING id`,
-    [jobId],
-  );
-
-  await check("a job cannot contain duplicate subtask sequence positions", async () => {
-    try {
-      await client.query(
-        `INSERT INTO job_subtasks (job_id, title, sequence_order) VALUES ($1, 'Duplicate position', 0)`,
-        [jobId],
-      );
-      throw new Error("expected duplicate subtask sequence to be rejected");
-    } catch (err) {
-      if ((err as pg.DatabaseError).code !== "23505") throw err;
-    }
-  });
-
   await check("job evidence rejects a worker not assigned to that job", async () => {
     try {
       await client.query(
@@ -346,16 +351,16 @@ async function main(): Promise<void> {
 
   step("Concurrency (one worker racing for two jobs)");
   const sameWorkerJobA = await client.query(
-    `INSERT INTO jobs (client_id, title, description, category, budget_cents, location)
+    `INSERT INTO jobs (client_id, title, description, category, budget_cents, location, escrow_status)
      VALUES ($1, 'Same worker A', 'Only one active claim should win', 'TASK', 5000,
-             ST_SetSRID(ST_MakePoint(-73.98, 40.74), 4326))
+             ST_SetSRID(ST_MakePoint(-73.98, 40.74), 4326), 'HELD')
      RETURNING id`,
     [clientId],
   );
   const sameWorkerJobB = await client.query(
-    `INSERT INTO jobs (client_id, title, description, category, budget_cents, location)
+    `INSERT INTO jobs (client_id, title, description, category, budget_cents, location, escrow_status)
      VALUES ($1, 'Same worker B', 'Same worker second claim should fail', 'TASK', 5000,
-             ST_SetSRID(ST_MakePoint(-73.981, 40.741), 4326))
+             ST_SetSRID(ST_MakePoint(-73.981, 40.741), 4326), 'HELD')
      RETURNING id`,
     [clientId],
   );
@@ -374,7 +379,9 @@ async function main(): Promise<void> {
 
   const sameWorkerSucceeded = sameWorkerOutcomes.filter((o) => o.status === "fulfilled");
   const sameWorkerRejected = sameWorkerOutcomes.filter(
-    (o) => o.status === "rejected" && (o.reason as pg.DatabaseError).code === "22000",
+    (o) =>
+      o.status === "rejected" &&
+      ["22000", "55000"].includes((o.reason as pg.DatabaseError).code ?? ""),
   );
 
   if (sameWorkerSucceeded.length !== 1 || sameWorkerRejected.length !== 1) {
@@ -387,9 +394,9 @@ async function main(): Promise<void> {
 
   step("Concurrency (two independent workers racing for one job)");
   const raceJob = await client.query(
-    `INSERT INTO jobs (client_id, title, description, category, budget_cents, location)
+    `INSERT INTO jobs (client_id, title, description, category, budget_cents, location, escrow_status)
      VALUES ($1, 'Race job', 'First to accept wins', 'TASK', 5000,
-             ST_SetSRID(ST_MakePoint(-73.99, 40.75), 4326))
+             ST_SetSRID(ST_MakePoint(-73.99, 40.75), 4326), 'HELD')
      RETURNING id`,
     [clientId],
   );
