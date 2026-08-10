@@ -168,6 +168,11 @@ only Postgres moves to the cloud. ~15 minutes, free tier.
 
 ## 4. Tomorrow on the Linux office laptop (browser only)
 
+> **If you cannot bring the Mac to the office**, the tunnel approach below is not an option.
+> Use **`DEPLOY_CLOUD_LINUX_ONLY.md`** instead: a full cloud deployment (Railway API +
+> Postgres + Redis, Vercel frontend, and a browser funding-settler at
+> `/dev/settle-funding`) that works from the Linux laptop with zero dependence on the Mac.
+
 ### On the Mac (before the meeting)
 ```sh
 cd /Users/adityasharma/Desktop/NETWORKPEER/NetworkPeer-main

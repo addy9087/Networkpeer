@@ -182,10 +182,9 @@ function Landing() {
       <header className="glass sticky top-0 z-40 border-b">
         <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 sm:px-6">
           <Link to="/" className="flex min-w-0 items-center gap-2.5">
-            <span className="gradient-brand animate-gradient-pan grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sm font-bold text-primary-foreground">
-              G
+            <span className="text-gradient-brand animate-gradient-pan truncate text-lg font-semibold">
+              NetworkPeers
             </span>
-            <span className="truncate text-base font-semibold">NetworkPeers</span>
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />

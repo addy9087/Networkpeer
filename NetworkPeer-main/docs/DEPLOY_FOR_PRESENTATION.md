@@ -4,6 +4,10 @@ The presentation laptop cannot run Node/Docker, so the demo must be **browser-on
 machine: it just opens URLs (one normal window for the client, one incognito for the worker).
 Everything else runs elsewhere.
 
+> **If you CANNOT bring the Mac to the office** (Mac not allowed), skip this tunnel-based guide
+> and use **`DEPLOY_CLOUD_LINUX_ONLY.md`** — the full cloud deployment (Railway + Vercel) that
+> works from any browser with zero dependency on the Mac.
+
 Repository: `github.com/addy9087/Networkpeer` — branch `main`, commit `2796fef` (pushed, CI running).
 
 ---
