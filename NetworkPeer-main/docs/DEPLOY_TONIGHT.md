@@ -92,7 +92,7 @@ Follow `docs/EXECUTIVE_PRESENTATION_AND_DEPLOYMENT_GUIDE.md` §2 (Railway/Render
 
 ## S3 for the evidence step (tonight, if you have an AWS account — ~10 min)
 1. Create bucket, enable versioning, enable default encryption, enable all Block Public Access.
-2. Create an IAM user with programmatic keys; policy for `s3:PutObject`, `s3:GetObject` (HeadObject), `s3:PutObjectTagging`, `s3:GetPublicAccessBlock`, `s3:GetBucketEncryption`, `s3:GetBucketVersioning` on the bucket.
+2. Create an IAM user with programmatic keys; policy for `s3:PutObject`, `s3:GetObject` (HeadObject), `s3:PutObjectTagging`, `s3:GetBucketVersioning`, `s3:GetBucketPublicAccessBlock`, `s3:GetEncryptionConfiguration`, `s3:PutBucketCORS` on the bucket (the first two were wrongly named `GetPublicAccessBlock`/`GetBucketEncryption` before, and `PutBucketCORS` was missing).
 3. Add to `NetworkPeer-main/.env`: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`.
 4. Set bucket CORS for `http://localhost:8080` (§2.6 of the guide, with `FRONTEND_ORIGIN=http://localhost:8080`).
 5. Restart the API. Evidence upload in the demo then works end-to-end.

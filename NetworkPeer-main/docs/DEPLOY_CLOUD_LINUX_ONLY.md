@@ -138,7 +138,7 @@ Linux laptop (browser only)
     "Statement": [
       { "Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject", "s3:PutObjectTagging"],
         "Resource": "arn:aws:s3:::<bucket>/*" },
-      { "Effect": "Allow", "Action": ["s3:GetPublicAccessBlock", "s3:GetBucketEncryption", "s3:GetBucketVersioning", "s3:ListBucket"],
+      { "Effect": "Allow", "Action": ["s3:GetBucketPublicAccessBlock", "s3:GetEncryptionConfiguration", "s3:GetBucketVersioning", "s3:PutBucketCORS", "s3:ListBucket"],
         "Resource": "arn:aws:s3:::<bucket>" }
     ]
   }

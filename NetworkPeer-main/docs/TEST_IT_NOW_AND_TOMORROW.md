@@ -156,9 +156,12 @@ only Postgres moves to the cloud. ~15 minutes, free tier.
 
 1. Create (or reuse) a bucket: **versioning ON, default encryption ON, all public access
    blocked**.
-2. Create an IAM user with programmatic keys; attach a policy granting on that bucket:
-   `PutObject`, `GetObject`, `PutObjectTagging`, `GetPublicAccessBlock`,
-   `GetBucketEncryption`, `GetBucketVersioning`.
+2. Create an IAM user with programmatic keys; attach a policy granting on that bucket
+   (use these **exact** IAM action names — two older docs listed wrong ones, and
+   `PutBucketCORS` was missing entirely):
+   `s3:PutObject`, `s3:GetObject`, `s3:PutObjectTagging`, `s3:GetBucketVersioning`,
+   `s3:GetBucketPublicAccessBlock`, `s3:GetEncryptionConfiguration`, `s3:PutBucketCORS`.
+   Verify + set CORS with: `node scripts/verify-s3-setup.mjs` (all ✅).
 3. Add to `NetworkPeer-main/.env`:
    ```
    AWS_REGION=<your-region e.g. ap-south-1>
@@ -235,6 +238,10 @@ this stays true for the tunnel setup).
 ---
 
 ## 6. What to send to the office laptop before sleeping
+
+**Fresh guide for tomorrow: `docs/LINUX_TOMORROW_QUICKSTART.md`** — decision table (tunnel vs
+cloud), tonight's 15-min Mac prep (incl. the one-time S3 IAM fix), the exact Linux-browser
+execution steps, the boss-demo script, fallbacks, and the final ship list.
 
 The Linux laptop needs **nothing but a browser** — no code, no installs. Email or Teams-message
 these three things tonight (or first thing tomorrow):
