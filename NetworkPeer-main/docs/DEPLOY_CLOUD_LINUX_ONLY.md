@@ -1,8 +1,10 @@
 # NetworkPeer — Demo From the Linux Laptop ONLY (No Mac in the Office)
 
-The Mac stays at home; the office Linux laptop only opens URLs in a browser. Everything must
-run in the cloud. This guide uses **demo mode** (see the warning below) so the whole flow —
-sign-up, funding, evidence, approval — works tonight without Twilio or Stripe accounts.
+> **THIS IS THE REQUIRED PATH** (updated Aug 11): the Mac will NOT be in the office, so the
+> tunnel approach is dead. Everything must run in the cloud; the office Linux laptop only
+> opens URLs in a browser. This guide uses **demo mode** (see the warning below) so the whole
+> flow — sign-up, funding, evidence, approval — works tonight without Twilio or Stripe
+> accounts (OTP is shown on the verify screen; payments are simulated).
 
 ## The important trade-off (read this first)
 
@@ -55,6 +57,34 @@ Linux laptop (browser only)
    `DATABASE_URL` and leave the other three empty — simplest for the demo.)
    > Free alternative: **Neon** (console.neon.tech) — same migrate/provision commands against
    > its `?sslmode=require` URL. PostGIS is supported.
+
+## Step 1.5 — How the database is visible (how to see your data)
+
+There are two sides to "seeing" the DB:
+
+**How the API connects (invisible to you, but worth knowing):** the API only knows the DB
+through the `DATABASE_URL` env var (Step 1). The migrations + role provisioning run against
+that same URL. No other config touches the DB.
+
+**How YOU view the data — three ways:**
+
+1. **Railway dashboard (easiest, no tools):** open the `networkpeer-db` Postgres service →
+   **Data** tab → pick a table (e.g. `users`, `jobs`) from the left list to browse rows, or
+   click **Query** for a SQL editor (run `SELECT * FROM jobs;`). Table + column names come
+   from the migrations (`NetworkPeer-main/migrations/*.sql`).
+2. **psql from the Mac** (or any machine with `psql` installed):
+   ```sh
+   psql "postgresql://postgres:PASSWORD@host.up.railway.app:PORT/railway?sslmode=require"
+   # then: \dt        (list tables)
+   #       \d jobs    (describe a table)
+   #       SELECT * FROM schema_migrations ORDER BY filename DESC LIMIT 3;
+   ```
+3. **Neon console** (if you used Neon instead): console.neon.tech → project → **SQL Editor** —
+   same queries, no local install.
+
+> Local Mac tonight (while testing): the Docker PostGIS is at `localhost:5433` — see
+> `TEST_IT_NOW_AND_TOMORROW.md` §5 (`docker exec`, `npm run db:shell`, or any Postgres GUI
+> pointed at `localhost:5433`, user `postgres`). The cloud DB is the same schema, just remote.
 
 ## Step 2 — API on Railway (15 min)
 
@@ -182,5 +212,7 @@ Linux laptop (browser only)
 ## After the demo (cleanup / production-ify)
 
 - Delete or lock the Railway/Vercel demo deployments, or keep them behind proper secrets.
-- To go real: set `NODE_ENV=production`, add Twilio + Stripe keys, disable OTP echo, set real
+- To go real: set `NODE_ENV=production`, add Stripe keys, disable OTP echo, set real
   4-role database URLs, and remove `VITE_DEMO_WEBHOOK_SECRET` from the frontend build.
+  (Twilio was intentionally skipped for this demo — real SMS requires a paid Twilio plan;
+  console-mode OTP echo is what makes the demo work for free.)

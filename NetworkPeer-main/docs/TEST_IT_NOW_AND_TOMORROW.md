@@ -185,35 +185,27 @@ only Postgres moves to the cloud. ~15 minutes, free tier.
 
 ---
 
-## 3.5 Twilio real-SMS OTP (2 min — optional but recommended for the demo)
+## 3.5 Twilio real-SMS OTP (skipped — needs a paid Twilio plan)
 
-The Twilio provider is **already implemented** in the backend (fetch-based, no SDK).
-Enabling it is pure config:
+The Twilio provider is **already implemented** in the backend (fetch-based, no SDK) and was
+verified to boot + route correctly, but enabling it requires a paid Twilio plan (the trial
+only sends to verified numbers and the user chose to skip it). The demo therefore runs with
+`SMS_PROVIDER=console` + `OTP_ECHO_IN_RESPONSE=true` everywhere (local AND cloud demo mode):
+**the OTP is shown on the verify screen** — any phone number works, no SMS needed.
 
-1. In `NetworkPeer-main/.env` set:
-   ```
-   SMS_PROVIDER=twilio
-   OTP_ECHO_IN_RESPONSE=false
-   TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-   TWILIO_AUTH_TOKEN=your-auth-token
-   TWILIO_FROM_NUMBER=+1XXXXXXXXXX
-   ```
-   (The API refuses to boot with `SMS_PROVIDER=twilio` until all three TWILIO_* values are
-   set, and refuses `OTP_ECHO_IN_RESPONSE=true` alongside it — by design.)
-2. Restart the API. Sign up with a real phone number → the OTP arrives by SMS.
-3. **Trial-account caveat:** Twilio free trials only send to numbers added under
-   Console → Phone Numbers → Verified caller IDs. Add the demo phone(s) there first.
-4. The frontend handles this automatically: with echo off it shows "Verification code sent"
-   and you type the code from the SMS.
+If you ever want real SMS: set `SMS_PROVIDER=twilio`, `OTP_ECHO_IN_RESPONSE=false`, and
+`TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` (all 3 required or the API
+refuses to boot, by design). The frontend already switches to "Verification code sent" when
+the echo is off.
 
 ---
 
 ## 4. Tomorrow on the Linux office laptop (browser only)
 
-> **If you cannot bring the Mac to the office**, the tunnel approach below is not an option.
-> Use **`DEPLOY_CLOUD_LINUX_ONLY.md`** instead: a full cloud deployment (Railway API +
-> Postgres + Redis, Vercel frontend, and a browser funding-settler at
-> `/dev/settle-funding`) that works from the Linux laptop with zero dependence on the Mac.
+> **THE MAC WILL NOT BE IN THE OFFICE — the tunnel approach below is OFF the table.**
+> **`DEPLOY_CLOUD_LINUX_ONLY.md` is now THE path**: Railway API + Postgres + Redis, Vercel
+> frontend, and a browser funding-settler at `/dev/settle-funding`. Work through it tonight
+> (2–4 h); `LINUX_TOMORROW_QUICKSTART.md` is the condensed action list + shipping checklist.
 
 ### On the Mac (before the meeting)
 ```sh
@@ -256,9 +248,8 @@ docker exec networkpeer-postgis psql -U postgres -d networkpeer \
 ```
 
 Known limits to mention honestly in the demo: evidence needs S3 configured (section 3);
-admin screens are still prototypes; browser push (FCM) is not wired. OTP can now be delivered
-by **real SMS via Twilio** (§7) — in console/dev mode it is echoed on the verify screen
-instead (Twilio trial accounts only deliver to numbers verified in the Twilio console).
+admin screens are still prototypes; browser push (FCM) is not wired; Twilio real-SMS was
+skipped (paid plan) so the OTP is echoed on the verify screen in demo mode everywhere.
 
 ---
 
