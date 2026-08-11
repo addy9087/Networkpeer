@@ -5,8 +5,9 @@
 two workers race → exactly one 200 / one 409), live boot ✅ (`/live`, `/health` → database +
 postgis true), real OTP → login → protected route ✅, frontend dev on 8080 ✅,
 **frontend `NITRO_PRESET=vercel` production build ✅**, **backend Docker image builds AND
-boots with demo-mode env ✅**, S3 `networkpeer-v1` reachable (versioning ✅; one-time IAM fix
-below).
+boots with demo-mode env ✅**, S3 `networkpeer-v1` reachable (versioning ✅; **IAM inline
+policy created + `verify-s3-setup.mjs` all green ✅** — policy name is arbitrary; the one used
+here is named `new`).
 
 > **Path A (Mac tunnel) is dead** — the Mac will NOT be in the office. This quickstart is the
 > Path B plan: everything in the cloud, the Linux laptop only opens URLs. The detailed
@@ -17,10 +18,12 @@ below).
 
 ## Step 1 — Tonight on the Mac (2–4 h total, do these three in parallel where possible)
 
-### 1a. S3 IAM fix (2 min — do this first, it's independent)
+### 1a. S3 IAM fix (DONE ✅ — created as inline policy named `new`)
 **Where:** AWS Console → IAM → Users → `networkpeer-demo` → Permissions → **Add permissions** →
 **Create inline policy** → **JSON** → paste → Next → Create policy. (No aws CLI on the Mac and
 this user can't edit its own policy, so console-only. Bucket: `networkpeer-v1`.)
+The policy **name is arbitrary** — nothing in the code reads it, only the attached actions
+matter. It was saved here as `new`.
 
 ```json
 {
@@ -42,8 +45,14 @@ this user can't edit its own policy, so console-only. Bucket: `networkpeer-v1`.)
   ]
 }
 ```
-Verify: `cd /Users/adityasharma/Desktop/NETWORKPEER/NetworkPeer-main && node scripts/verify-s3-setup.mjs`
+Verify (DONE ✅): `cd /Users/adityasharma/Desktop/NETWORKPEER/NetworkPeer-main && node scripts/verify-s3-setup.mjs`
 → all ✅ (also sets CORS for `localhost:8080`).
+
+**After the Vercel deploy (Step 1c), re-run with the Vercel origin so browser uploads work
+from the live site** — the script accepts extra origins and re-sets CORS:
+```sh
+cd /Users/adityasharma/Desktop/NETWORKPEER/NetworkPeer-main && node scripts/verify-s3-setup.mjs https://<vercel-origin>
+```
 
 ### 1b. Railway (15 min) — database, Redis, API
 Follow `DEPLOY_CLOUD_LINUX_ONLY.md` **Steps 1–2**: create Postgres + Redis plugins, run the

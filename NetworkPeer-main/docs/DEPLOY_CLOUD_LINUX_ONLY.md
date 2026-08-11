@@ -161,7 +161,8 @@ that same URL. No other config touches the DB.
 - Bucket settings (you're on the Create screen now): **Region eu-north-1 (Stockholm)**, General
   purpose, **Block all public access = ON**, **Versioning = Enable** (currently shows Disable —
   switch it), **Default encryption = SSE-S3**, no tags → **Create bucket**.
-- IAM: create a user (Access key type: Programmatic) and attach an inline policy:
+- IAM: create a user (Access key type: Programmatic) and attach an inline policy. The policy
+  **name is arbitrary** (nothing reads it; the current one was saved as `new`):
   ```json
   {
     "Version": "2012-10-17",
@@ -182,6 +183,11 @@ that same URL. No other config touches the DB.
     "ExposeHeaders": ["ETag"], "MaxAgeSeconds": 300 } ] }
   EOF
   aws s3api put-bucket-cors --bucket "$AWS_S3_BUCKET" --cors-configuration file:///tmp/networkpeer-s3-cors.json
+  ```
+  No aws CLI? Use the repo verifier instead — it sets CORS to `localhost:8080` plus any extra
+  origins you pass:
+  ```sh
+  cd NetworkPeer-main && node scripts/verify-s3-setup.mjs https://<vercel-origin>
   ```
 
 ## Step 5 — Tomorrow on the Linux laptop (browser only)
