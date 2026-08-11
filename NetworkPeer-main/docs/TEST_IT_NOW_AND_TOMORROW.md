@@ -58,8 +58,10 @@ Check: `curl http://localhost:3000/api/v1/live` → `{"success":true,...}` and
 **1. Home page** — open `http://localhost:8080`. Watch the animated gradient headline and
 blobs; hover the demo card (it tilts in 3D); scroll — sections fade up.
 
-**2. Sign in** — normal window = **client**, incognito window = **worker** (`/auth`). The OTP
-is shown on the verify screen (dev mode). Sign up the worker with role **Worker**.
+**2. Sign in** — normal window = **client**, incognito window = **worker** (`/auth`). Sign up
+the worker with role **Worker**. OTP delivery: in console mode the code is shown on the verify
+screen; with Twilio enabled (§7) a **real SMS** arrives instead — use a phone you can receive
+on.
 
 **3. Admin + worker verification** (one time, in a third terminal):
 ```sh
@@ -183,6 +185,29 @@ only Postgres moves to the cloud. ~15 minutes, free tier.
 
 ---
 
+## 3.5 Twilio real-SMS OTP (2 min — optional but recommended for the demo)
+
+The Twilio provider is **already implemented** in the backend (fetch-based, no SDK).
+Enabling it is pure config:
+
+1. In `NetworkPeer-main/.env` set:
+   ```
+   SMS_PROVIDER=twilio
+   OTP_ECHO_IN_RESPONSE=false
+   TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   TWILIO_AUTH_TOKEN=your-auth-token
+   TWILIO_FROM_NUMBER=+1XXXXXXXXXX
+   ```
+   (The API refuses to boot with `SMS_PROVIDER=twilio` until all three TWILIO_* values are
+   set, and refuses `OTP_ECHO_IN_RESPONSE=true` alongside it — by design.)
+2. Restart the API. Sign up with a real phone number → the OTP arrives by SMS.
+3. **Trial-account caveat:** Twilio free trials only send to numbers added under
+   Console → Phone Numbers → Verified caller IDs. Add the demo phone(s) there first.
+4. The frontend handles this automatically: with echo off it shows "Verification code sent"
+   and you type the code from the SMS.
+
+---
+
 ## 4. Tomorrow on the Linux office laptop (browser only)
 
 > **If you cannot bring the Mac to the office**, the tunnel approach below is not an option.
@@ -231,9 +256,9 @@ docker exec networkpeer-postgis psql -U postgres -d networkpeer \
 ```
 
 Known limits to mention honestly in the demo: evidence needs S3 configured (section 3);
-admin screens are still prototypes; browser push (FCM) is not wired; cloud login needs
-Twilio (section 2's cloud DB keeps OTP echo in dev mode because the API still runs locally —
-this stays true for the tunnel setup).
+admin screens are still prototypes; browser push (FCM) is not wired. OTP can now be delivered
+by **real SMS via Twilio** (§7) — in console/dev mode it is echoed on the verify screen
+instead (Twilio trial accounts only deliver to numbers verified in the Twilio console).
 
 ---
 

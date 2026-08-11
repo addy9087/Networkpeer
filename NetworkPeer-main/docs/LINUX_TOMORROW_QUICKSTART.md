@@ -26,9 +26,11 @@ The Linux laptop **never runs the app** — it only opens URLs in a browser. Not
 ## Step 1 — Tonight on the Mac (15 min)
 
 ### 1a. One-time S3 fix (2 min, only if you want the evidence step to work)
-The demo IAM user is missing 3 actions and the docs had 2 wrong names. In AWS Console:
-IAM → Users → `networkpeer-demo` → Permissions → add/merge this policy (replace the bucket name
-if yours differs):
+The demo IAM user is missing 3 actions and the docs had 2 wrong names. **Where to make the
+change:** AWS Console → IAM → Users → `networkpeer-demo` → **Permissions** → **Add
+permissions** → **Create inline policy** → **JSON** tab → paste the policy below → Next →
+Create policy. (Can't be done from the Mac — no aws CLI, and this user can't edit its own
+policy. Bucket name is `networkpeer-v1`.)
 
 ```json
 {
@@ -95,7 +97,9 @@ see §5 fallbacks — do **not** spend meeting time debugging the corporate prox
 1. **Home** — animated gradient wordmark, drifting blobs, 3D-tilt demo card (hover it),
    scroll-reveal sections.
 2. **Sign in** — client in the normal window, worker in incognito (`/auth`, role Worker).
-   The OTP is displayed on the verify screen (dev mode) — any phone number works.
+   With Twilio on, the OTP arrives by **real SMS** (use numbers verified in the Twilio
+   console; trial accounts only send to verified numbers). Console mode shows it on the
+   verify screen instead.
 3. **Verify the worker** (one time, on the Mac — incognito isn't admin-verifiable from Linux):
    ```sh
    cd /Users/adityasharma/Desktop/NETWORKPEER/NetworkPeer-main
@@ -136,6 +140,11 @@ Email or Teams-message **these three things** (nothing else — no code, no repo
    (`.md` version too if email accepts it).
 2. `docs/NETWORKPEER_COMPLETE_GUIDE.docx` — full technical breakdown for hard questions.
 3. The two URLs from §1b (frontend tunnel + `/dev/settle-funding` note if on Path B).
+4. Optional: this quickstart (`LINUX_TOMORROW_QUICKSTART.md` / `.docx`) so they can follow
+   the demo script themselves.
+
+**Never ship secrets:** Twilio SID/token, AWS keys, and `.env` stay on the Mac (or in the
+cloud platform's env vars for Path B) — the office laptop only ever opens URLs.
 
 **Do not ship:** the codebase, `.env`, Docker, npm packages, or any install instructions —
 the office machine only opens links. Send the URLs in the same message as the meeting link.
@@ -165,4 +174,5 @@ node scripts/verify-s3-setup.mjs     # S3 readiness + CORS (see §1a)
 ```
 
 Known limits to be honest about: admin screens are prototypes; browser push (FCM) isn't
-wired; cloud login would need Twilio (dev OTP echo is what makes this demo work).
+wired. OTP is real SMS via Twilio (trial accounts only deliver to verified numbers); in
+console mode it's echoed on the verify screen instead.
