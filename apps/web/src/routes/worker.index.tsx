@@ -258,7 +258,7 @@ function WorkerHome() {
     void api
       .workerJobs()
       .then((result) => {
-        if (active) setActiveJobs(result.items ?? []);
+        if (active) setActiveJobs((result as any).items ?? result.jobs ?? []);
       })
       .catch(() => {
         if (active) setActiveJobs([]);

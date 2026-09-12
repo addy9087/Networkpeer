@@ -69,7 +69,7 @@ export function ClientProfilePage() {
       if (res) {
         setProfile({
           id: res.id || fallbackUser.id,
-          phoneNumber: res.phoneNumber || res.phone_number || fallbackUser.phone,
+          phoneNumber: res.phoneNumber || res.phone_number || fallbackUser.phone || "",
           fullName: res.fullName || res.full_name || fallbackUser.full_name || "Verified Client",
           email: res.email || null,
           role: res.role || "CLIENT",

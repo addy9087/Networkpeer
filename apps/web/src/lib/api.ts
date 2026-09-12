@@ -29,7 +29,14 @@ type TokenPair = {
   access_token: string;
   refresh_token: string;
   expires_in: number;
-  user: { id: string; role: AppRole; phone: string; full_name: string };
+  user: {
+    id: string;
+    role: AppRole;
+    phone?: string;
+    full_name?: string;
+    email?: string;
+    mobile_number?: string;
+  };
   is_new_account?: boolean;
 };
 
@@ -261,10 +268,15 @@ export class ApiError extends Error {
 let refreshInFlight: Promise<AuthSession | null> | null = null;
 
 export type OtpRequestResult = {
-  expiresInSeconds: number;
-  otpLength: number;
-  delivery: { transport: "sms" | "log"; to?: string };
+  expiresInSeconds?: number;
+  otpLength?: number;
+  otp_length?: number;
+  challenge_id?: string;
+  challengeId?: string;
+  delivery?: { transport: "sms" | "email" | "log"; to?: string };
   otp?: string;
+  success?: boolean;
+  message?: string;
 };
 
 function endpoint(path: string): string {
@@ -427,14 +439,25 @@ export const api = {
   }> {
     return request("/auth/profile");
   },
-  updateProfile(body: { full_name?: string; email?: string | null }): Promise<any> {
+  updateProfile(body: {
+    full_name?: string;
+    fullName?: string;
+    email?: string | null;
+    mobile_number?: string;
+    mobileNumber?: string;
+  }): Promise<any> {
+    const payload = {
+      full_name: body.full_name ?? body.fullName,
+      email: body.email,
+      mobile_number: body.mobile_number ?? body.mobileNumber,
+    };
     return request("/auth/profile", {
       method: "PATCH",
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     }).catch(() =>
       request("/auth/profile", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       }),
     );
   },

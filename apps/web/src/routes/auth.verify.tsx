@@ -1,12 +1,12 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, Loader2, Smartphone, Sparkles } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Loader2, Mail, Smartphone, Sparkles, User } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthLayout } from "@/components/auth/auth-ui";
 import { api, ApiError } from "@/lib/api";
 import { authSession } from "@/lib/auth-session";
-import { isOtpCodeValid } from "@/lib/auth-flow";
+import { isOtpCodeValid, toE164Phone, formatPhoneNumber } from "@/lib/auth-flow";
 import { PENDING_OTP_KEY, type PendingOtp } from "@/routes/auth.index";
 
 export const Route = createFileRoute("/auth/verify")({ component: VerifyOtpPage });
@@ -30,8 +30,10 @@ function VerifyOtpPage() {
   const [error, setError] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "resending">("idle");
   const [countdown, setCountdown] = useState(RESEND_SECONDS);
-  const [needsName, setNeedsName] = useState(false);
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("+91");
   const [destination, setDestination] = useState<"CLIENT" | "WORKER">("WORKER");
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -42,7 +44,11 @@ function VerifyOtpPage() {
       return;
     }
     try {
-      setPending(JSON.parse(stored) as PendingOtp);
+      const parsed = JSON.parse(stored) as PendingOtp;
+      setPending(parsed);
+      if (parsed.fullName) setFullName(parsed.fullName);
+      if (parsed.mobileNumber) setPhone(parsed.mobileNumber.replace(/^\+91/, ""));
+      if (parsed.role) setDestination(parsed.role);
     } catch {
       window.sessionStorage.removeItem(PENDING_OTP_KEY);
       void router.navigate({ to: "/auth" });
@@ -73,29 +79,54 @@ function VerifyOtpPage() {
         user: {
           id: `demo-${pending.role.toLowerCase()}-id`,
           role: pending.role,
-          phone: pending.phoneNumber,
-          full_name: pending.role === "CLIENT" ? "Demo Client" : "Verified Worker",
+          phone: pending.mobileNumber || pending.phoneNumber || "+919876543210",
+          email: pending.email || `${pending.role.toLowerCase()}@networkpeer.test`,
+          full_name: pending.fullName || (pending.role === "CLIENT" ? "Demo Client" : "Verified Worker"),
+          mobile_number: pending.mobileNumber || pending.phoneNumber || "+919876543210",
         },
       };
       authSession.set(demoSession);
       window.sessionStorage.removeItem(PENDING_OTP_KEY);
-      toast.success("Phone verified successfully!");
+      toast.success("Verification successful!");
       await router.navigate({ to: pending.role === "CLIENT" ? "/client" : "/worker" });
       return;
     }
 
     try {
-      const challengeId = pending.challengeId || "challenge_demo";
-      const session = await api.verifyOtp(pending.phoneNumber, otp, challengeId);
+      let session: any;
+      if (pending.type === "email" && pending.email) {
+        session = await api.verifyEmailOtp({
+          email: pending.email,
+          otp,
+          challengeId: pending.challengeId,
+          fullName: pending.fullName,
+          mobileNumber: pending.mobileNumber,
+          role: pending.role,
+        });
+      } else if (pending.phoneNumber) {
+        session = await api.verifyOtp(pending.phoneNumber, otp, pending.role);
+      } else {
+        throw new Error("Missing verification details");
+      }
+
       window.sessionStorage.removeItem(PENDING_OTP_KEY);
-      if (!session.user.full_name) {
-        setDestination(session.user.role === "CLIENT" ? "CLIENT" : "WORKER");
-        setNeedsName(true);
+
+      // Check if user is missing full name or mobile number (Mandatory per Rev5 §21)
+      const user = session.user;
+      const hasName = Boolean(user.full_name && user.full_name.trim().length >= 2);
+      const hasPhone = Boolean((user.mobile_number || user.phone) && (user.mobile_number || user.phone).trim().length >= 8);
+
+      if (!hasName || !hasPhone) {
+        setDestination(user.role === "CLIENT" ? "CLIENT" : "WORKER");
+        if (user.full_name) setFullName(user.full_name);
+        if (user.mobile_number || user.phone) setPhone((user.mobile_number || user.phone).replace(/^\+91/, ""));
+        setNeedsProfileCompletion(true);
         setStatus("idle");
         return;
       }
-      toast.success("Phone verified. Your session is ready.");
-      await router.navigate({ to: session.user.role === "CLIENT" ? "/client" : "/worker" });
+
+      toast.success("Identity verified. Session activated.");
+      await router.navigate({ to: user.role === "CLIENT" ? "/client" : "/worker" });
     } catch (requestError) {
       if (otp.length === 6) {
         const fallbackSession = {
@@ -105,13 +136,15 @@ function VerifyOtpPage() {
           user: {
             id: `demo-${pending.role.toLowerCase()}-id`,
             role: pending.role,
-            phone: pending.phoneNumber,
-            full_name: pending.role === "CLIENT" ? "Demo Client" : "Verified Worker",
+            phone: pending.mobileNumber || pending.phoneNumber || "+919876543210",
+            email: pending.email || `${pending.role.toLowerCase()}@networkpeer.test`,
+            full_name: pending.fullName || (pending.role === "CLIENT" ? "Demo Client" : "Verified Worker"),
+            mobile_number: pending.mobileNumber || pending.phoneNumber || "+919876543210",
           },
         };
         authSession.set(fallbackSession);
         window.sessionStorage.removeItem(PENDING_OTP_KEY);
-        toast.success("Phone verified (Demo Mode)");
+        toast.success("Session verified (Demo Mode)");
         await router.navigate({ to: pending.role === "CLIENT" ? "/client" : "/worker" });
         return;
       }
@@ -127,17 +160,23 @@ function VerifyOtpPage() {
     setStatus("resending");
     setError("");
     try {
-      const result = await api.requestOtp(pending.phoneNumber, pending.role);
-      setPending((current) => {
-        if (!current) return current;
-        const next = { ...current, otpLength: result.otp_length, challengeId: result.challenge_id, developmentOtp: result.otp };
-        window.sessionStorage.setItem(PENDING_OTP_KEY, JSON.stringify(next));
-        return next;
-      });
+      let result: any;
+      if (pending.type === "email" && pending.email) {
+        result = await api.requestEmailOtp(pending.email, pending.role);
+      } else if (pending.phoneNumber) {
+        result = await api.requestOtp(pending.phoneNumber);
+      }
+      if (result) {
+        setPending((current) => {
+          if (!current) return current;
+          const next = { ...current, otpLength: result.otp_length, challengeId: result.challenge_id, developmentOtp: result.otp };
+          window.sessionStorage.setItem(PENDING_OTP_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
       setCountdown(RESEND_SECONDS);
       setOtp("");
-      setError("");
-      toast.success("A fresh verification code was sent.");
+      setError("");      toast.success("A fresh verification code was sent.");
     } catch (requestError) {
       const message = errorMessage(requestError);
       setError(message);
@@ -147,23 +186,33 @@ function VerifyOtpPage() {
     }
   };
 
-  const saveName = async () => {
+  const saveMandatoryProfile = async () => {
     const name = fullName.trim();
     if (name.length < 2) {
-      setError("Enter your full name (at least 2 characters).");
+      setError("Full name is mandatory (at least 2 characters).");
       return;
     }
+
+    const fullPhone = toE164Phone(countryCode, phone);
+    if (!fullPhone) {
+      setError("A valid mobile number is mandatory to proceed.");
+      return;
+    }
+
     setStatus("loading");
     setError("");
     try {
       try {
-        await api.updateProfile({ fullName: name });
+        await api.updateProfile({ fullName: name, mobileNumber: fullPhone });
       } catch {
         // Best effort profile update
       }
       const current = authSession.get();
       if (current) {
-        authSession.set({ ...current, user: { ...current.user, full_name: name } });
+        authSession.set({
+          ...current,
+          user: { ...current.user, full_name: name, mobile_number: fullPhone },
+        });
       }
       toast.success(`Welcome, ${name}!`);
       await router.navigate({ to: destination === "CLIENT" ? "/client" : "/worker" });
@@ -175,15 +224,15 @@ function VerifyOtpPage() {
     }
   };
 
-  if (needsName) {
+  if (needsProfileCompletion) {
     return (
       <AuthLayout
-        eyebrow="Almost there"
-        heading="What should we call you?"
-        sub="Your name helps clients and workers recognize you on the platform."
+        eyebrow="Mandatory Profile Details"
+        heading="Complete Your Profile"
+        sub="Full Name and Mobile Number are required for identity verification across NetworkPeers."
       >
         <div className="w-full rounded-2xl border border-border bg-muted/70 p-6 shadow-lift">
-          <div className="flex items-center gap-3 rounded-2xl border border-border bg-muted/70 p-3">
+          <div className="flex items-center gap-3 rounded-2xl border border-border bg-card/80 p-3">
             <div className="grid h-10 w-10 place-items-center rounded-2xl bg-primary-soft text-primary">
               <Sparkles className="h-5 w-5" />
             </div>
@@ -191,64 +240,107 @@ function VerifyOtpPage() {
               <p className="text-sm font-semibold text-foreground">
                 New {destination === "CLIENT" ? "client" : "worker"} account
               </p>
-              <p className="text-sm text-muted-foreground">One quick step before you dive in.</p>
+              <p className="text-sm text-muted-foreground">Complete mandatory identity fields to activate account.</p>
             </div>
           </div>
-          <div className="mt-6">
-            <label className="text-sm font-medium text-foreground">Full name</label>
-            <input
-              value={fullName}
-              onChange={(event) => {
-                setFullName(event.target.value);
-                setError("");
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && status !== "loading") void saveName();
-              }}
-              placeholder="e.g. Rohan Sharma"
-              autoFocus
-              className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-4 text-base outline-none focus:ring-2 focus:ring-ring/40"
-            />
-            {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+
+          <div className="mt-6 space-y-4">
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">Full Name</label>
+                <span className="text-xs font-semibold uppercase tracking-wider text-amber-500">
+                  Mandatory
+                </span>
+              </div>
+              <div className="relative mt-1.5">
+                <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={fullName}
+                  onChange={(event) => {
+                    setFullName(event.target.value);
+                    setError("");
+                  }}
+                  placeholder="e.g. Rohan Sharma"
+                  autoFocus
+                  className="h-12 w-full rounded-xl border border-border bg-background pl-10 pr-4 text-base outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-foreground">Mobile Number</label>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-amber-500">
+                    Mandatory
+                  </span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    (unverified)
+                  </span>
+                </div>
+              </div>
+              <div className="mt-1.5 flex gap-2">
+                <select
+                  value={countryCode}
+                  onChange={(event) => setCountryCode(event.target.value)}
+                  className="h-12 w-24 rounded-xl border border-border bg-background px-3 text-base outline-none focus:ring-2 focus:ring-ring/40"
+                >
+                  <option value="+91">+91</option>
+                  <option value="+1">+1</option>
+                  <option value="+44">+44</option>
+                </select>
+                <div className="relative flex-1">
+                  <Smartphone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    value={phone}
+                    onChange={(event) => {
+                      setPhone(event.target.value.replace(/[^\d+]/g, ""));
+                      setError("");
+                    }}
+                    placeholder="98765 43210"
+                    className="h-12 w-full rounded-xl border border-border bg-background pl-10 pr-4 text-base outline-none focus:ring-2 focus:ring-ring/40"
+                  />
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Formats to: {formatPhoneNumber(phone, countryCode)}
+              </p>
+            </div>
+
+            {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
           </div>
+
           <button
             type="button"
-            onClick={() => void saveName()}
+            onClick={() => void saveMandatoryProfile()}
             disabled={status === "loading"}
-            className="mt-5 flex h-12 w-full items-center justify-center rounded-xl bg-primary px-4 text-base font-semibold text-primary-foreground disabled:opacity-80"
+            className="mt-6 flex h-12 w-full items-center justify-center rounded-xl bg-primary px-4 text-base font-semibold text-primary-foreground disabled:opacity-80"
           >
             {status === "loading" ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving profile...
               </>
             ) : (
               <>
-                <CheckCircle2 className="mr-2 h-4 w-4" /> Save and continue
+                <CheckCircle2 className="mr-2 h-4 w-4" /> Save & Enter {destination === "CLIENT" ? "Client" : "Worker"} Portal
               </>
             )}
           </button>
-          <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
-            <button
-              type="button"
-              onClick={() =>
-                void router.navigate({ to: destination === "CLIENT" ? "/client" : "/worker" })
-              }
-              disabled={status === "loading"}
-              className="font-medium text-primary hover:underline disabled:text-muted-foreground"
-            >
-              Skip for now
-            </button>
-          </div>
         </div>
       </AuthLayout>
     );
   }
 
+  const isEmail = pending?.type === "email";
+  const displayRecipient = pending?.email || pending?.displayTarget || pending?.displayPhone || "your destination";
+
   return (
     <AuthLayout
       eyebrow="Secure sign-in"
-      heading="Verify your number"
-      sub="Enter the one-time code sent to your phone."
+      heading="Enter Verification Code"
+      sub={isEmail ? "Enter the one-time verification code sent to your email." : "Enter the one-time code sent to your phone."}
     >
       <div className="w-full rounded-3xl border border-border bg-card/80 p-6 shadow-lift">
         <Link
@@ -259,12 +351,12 @@ function VerifyOtpPage() {
         </Link>
         <div className="mt-5 flex items-center gap-3 rounded-2xl border border-border bg-muted/70 p-3">
           <div className="grid h-10 w-10 place-items-center rounded-2xl bg-primary-soft text-primary">
-            <Smartphone className="h-5 w-5" />
+            {isEmail ? <Mail className="h-5 w-5" /> : <Smartphone className="h-5 w-5" />}
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">Code sent to</p>
-            <p className="text-sm text-muted-foreground">
-              {pending?.displayPhone ?? "your phone number"}
+            <p className="text-sm font-medium text-muted-foreground break-all">
+              {displayRecipient}
             </p>
           </div>
         </div>
@@ -319,13 +411,13 @@ function VerifyOtpPage() {
             </>
           ) : (
             <>
-              <CheckCircle2 className="mr-2 h-4 w-4" /> Verify OTP
+              <CheckCircle2 className="mr-2 h-4 w-4" /> Verify OTP & Sign In
             </>
           )}
         </button>
         <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
           <Link to="/auth" className="font-medium text-primary hover:underline">
-            Edit phone number
+            {isEmail ? "Edit email address" : "Edit phone number"}
           </Link>
           <button
             type="button"

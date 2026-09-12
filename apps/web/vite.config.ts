@@ -18,5 +18,5 @@ export default defineConfig({
   nitro: {
     preset: "vercel",
     noExternals: true,
-  } as { preset?: string; noExternals?: boolean },
-});
+  },
+} as any);
