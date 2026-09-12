@@ -78,8 +78,10 @@ data class Point(
 data class AuthUser(
     val id: String,
     val role: UserRole,
-    val phone: String,
+    val phone: String = "",
+    val email: String? = null,
     @SerialName("full_name") val fullName: String = "",
+    @SerialName("mobile_number") val mobileNumber: String? = null,
 )
 
 @Serializable
@@ -115,11 +117,13 @@ data class OtpDelivery(
 
 @Serializable
 data class OtpRequestResult(
-    @SerialName("challenge_id") val challengeId: String,
-    @SerialName("expires_in_seconds") val expiresInSeconds: Int,
-    @SerialName("otp_length") val otpLength: Int,
-    val delivery: OtpDelivery,
+    @SerialName("challenge_id") val challengeId: String = "",
+    @SerialName("expires_in_seconds") val expiresInSeconds: Int = 300,
+    @SerialName("otp_length") val otpLength: Int = 6,
+    val delivery: OtpDelivery? = null,
     val otp: String? = null,
+    val success: Boolean = true,
+    val message: String = "",
 )
 
 @Serializable
@@ -541,6 +545,7 @@ data class WorkerProfileData(
     val verificationStatus: String = "PENDING",
     val preferredRadiusKm: Int = 50,
     val isAvailable: Boolean = true,
+    @SerialName("eligible_roles") val eligibleRoles: List<String> = emptyList(),
 )
 
 @Serializable
@@ -549,10 +554,14 @@ data class UserProfile(
     @SerialName("phone_number") val phoneNumberSnake: String? = null,
     val phoneNumber: String = "",
     val phone: String? = null,
+    @SerialName("mobile_number") val mobileNumberSnake: String? = null,
+    val mobileNumber: String? = null,
     @SerialName("full_name") val fullNameSnake: String? = null,
     val fullName: String = "",
     val email: String? = null,
     val role: UserRole = UserRole.WORKER,
+    @SerialName("eligible_roles") val eligibleRolesList: List<String>? = null,
+    val eligibleRoles: List<String> = emptyList(),
     @SerialName("avatar_url") val avatarUrlSnake: String? = null,
     val avatarUrl: String? = null,
     @SerialName("is_active") val isActiveSnake: Boolean? = null,
@@ -565,14 +574,17 @@ data class UserProfile(
     val workerProfile: WorkerProfileData? = null,
 ) {
     val displayPhone: String
-        get() = phoneNumber.ifEmpty { phone ?: phoneNumberSnake ?: "" }
+        get() = mobileNumber ?: phoneNumber.ifEmpty { phone ?: phoneNumberSnake ?: mobileNumberSnake ?: "" }
     val displayName: String
         get() = fullName.ifEmpty { fullNameSnake ?: "Verified User" }
+    val roles: List<String>
+        get() = if (eligibleRoles.isNotEmpty()) eligibleRoles else (eligibleRolesList ?: emptyList())
 }
 
 @Serializable
 data class UpdateProfileBody(
     @SerialName("full_name") val fullName: String? = null,
+    @SerialName("mobile_number") val mobileNumber: String? = null,
     val email: String? = null,
     @SerialName("avatar_url") val avatarUrl: String? = null,
     val skills: List<String>? = null,

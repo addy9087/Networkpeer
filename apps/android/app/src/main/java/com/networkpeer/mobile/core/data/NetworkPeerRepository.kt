@@ -61,6 +61,43 @@ class AuthRepository(
     private val onLogout: ((String) -> Unit)? = null,
     private val deregisterDevice: (suspend (String) -> Unit)? = null,
 ) {
+    suspend fun requestEmailOtp(
+        email: String,
+        role: UserRole,
+        fullName: String? = null,
+        mobileNumber: String? = null,
+    ): OtpRequestResult = apiCall {
+        api.requestEmailOtp(
+            com.networkpeer.mobile.core.network.EmailOtpRequestBody(
+                email = email,
+                role = role,
+                fullName = fullName,
+                mobileNumber = mobileNumber,
+            )
+        )
+    }
+
+    suspend fun verifyEmailOtp(
+        email: String,
+        otp: String,
+        challengeId: String? = null,
+        fullName: String? = null,
+        mobileNumber: String? = null,
+    ): StoredSession {
+        val pair = apiCall {
+            api.verifyEmailOtp(
+                com.networkpeer.mobile.core.network.EmailOtpVerifyBody(
+                    email = email,
+                    otp = otp,
+                    challengeId = challengeId,
+                    fullName = fullName,
+                    mobileNumber = mobileNumber,
+                )
+            )
+        }
+        return StoredSession.from(pair).also(client.sessionStore::save)
+    }
+
     suspend fun requestOtp(phoneNumber: String, role: UserRole): OtpRequestResult = apiCall {
         api.requestOtp(OtpRequestBody(phoneNumber, role))
     }

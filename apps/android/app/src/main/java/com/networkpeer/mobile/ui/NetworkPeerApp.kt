@@ -240,6 +240,7 @@ private fun RoleSelectionCard(
 private fun AuthScreen(container: AppContainer) {
     val context = LocalContext.current
     var isRegisterMode by rememberSaveable { mutableStateOf(true) }
+    var authMethod by rememberSaveable { mutableStateOf("email") }
     var fullName by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
     var phone by rememberSaveable { mutableStateOf("") }
@@ -279,25 +280,50 @@ private fun AuthScreen(container: AppContainer) {
     }
 
     suspend fun requestCode() {
-        if (isRegisterMode && fullName.trim().isBlank()) {
+        if (isRegisterMode && fullName.trim().length < 2) {
             error = context.getString(R.string.full_name_required)
             return
         }
-        val rawDigits = phone.filter(Char::isDigit)
-        if (rawDigits.length < 10 && !phone.trim().startsWith("+")) {
+
+        val normalizedPhone = if (phone.isNotBlank()) normalizePhone(phone) else ""
+        if (isRegisterMode && (phone.isBlank() || phone.filter(Char::isDigit).length < 10)) {
             error = context.getString(R.string.phone_invalid_error)
             return
         }
-        val normalizedPhone = normalizePhone(phone)
-        val result = container.authRepository.requestOtp(normalizedPhone, role)
-        otpRequested = true
-        challengeId = result.challengeId
-        devOtp = result.otp
-        otp = ""
-        deliveryNote = if (result.delivery.transport?.equals("sms", ignoreCase = true) == true) {
-            context.getString(R.string.otp_sent)
+
+        if (authMethod == "email") {
+            val trimmedEmail = email.trim()
+            if (trimmedEmail.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
+                error = context.getString(R.string.email_invalid_error)
+                return
+            }
+            val result = container.authRepository.requestEmailOtp(
+                email = trimmedEmail.lowercase(),
+                role = role,
+                fullName = if (isRegisterMode) fullName.trim() else null,
+                mobileNumber = if (isRegisterMode) normalizedPhone else null,
+            )
+            otpRequested = true
+            challengeId = result.challengeId
+            devOtp = result.otp
+            otp = ""
+            deliveryNote = if (result.message.isNotBlank()) result.message else "Verification code sent to $trimmedEmail."
         } else {
-            context.getString(R.string.otp_requested)
+            val rawDigits = phone.filter(Char::isDigit)
+            if (rawDigits.length < 10 && !phone.trim().startsWith("+")) {
+                error = context.getString(R.string.phone_invalid_error)
+                return
+            }
+            val result = container.authRepository.requestOtp(normalizedPhone, role)
+            otpRequested = true
+            challengeId = result.challengeId
+            devOtp = result.otp
+            otp = ""
+            deliveryNote = if (result.delivery?.transport?.equals("sms", ignoreCase = true) == true) {
+                context.getString(R.string.otp_sent)
+            } else {
+                context.getString(R.string.otp_requested)
+            }
         }
     }
 
@@ -398,14 +424,78 @@ private fun AuthScreen(container: AppContainer) {
                         )
                     }
 
+                    // Sign-in Method Switcher
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (authMethod == "email") MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, if (authMethod == "email") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    if (authMethod != "email") {
+                                        authMethod = "email"
+                                        resetOtpRequest()
+                                    }
+                                },
+                        ) {
+                            Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = stringResource(R.string.auth_method_email),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (authMethod == "email") FontWeight.Bold else FontWeight.Normal,
+                                    color = if (authMethod == "email") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (authMethod == "phone") MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, if (authMethod == "phone") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    if (authMethod != "phone") {
+                                        authMethod = "phone"
+                                        resetOtpRequest()
+                                    }
+                                },
+                        ) {
+                            Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = stringResource(R.string.auth_method_phone),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (authMethod == "phone") FontWeight.Bold else FontWeight.Normal,
+                                    color = if (authMethod == "phone") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+
                     if (isRegisterMode) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = "${stringResource(R.string.full_name)} *",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "${stringResource(R.string.full_name)} *",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Mandatory",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFD97706),
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
                             OutlinedTextField(
                                 value = fullName,
                                 onValueChange = { fullName = it; error = null },
@@ -429,19 +519,36 @@ private fun AuthScreen(container: AppContainer) {
                                 ),
                             )
                         }
+                    }
 
+                    if (authMethod == "email") {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = stringResource(R.string.email_optional),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "${stringResource(R.string.email_address)} *",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Passwordless",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                             OutlinedTextField(
                                 value = email,
-                                onValueChange = { email = it; error = null },
+                                onValueChange = {
+                                    if (email != it && otpRequested) resetOtpRequest()
+                                    email = it
+                                    error = null
+                                },
                                 modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("e.g. rahul@example.com") },
+                                placeholder = { Text("e.g. worker@networkpeer.test") },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Outlined.Email,
@@ -463,77 +570,91 @@ private fun AuthScreen(container: AppContainer) {
                         }
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = stringResource(R.string.phone_number),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                                modifier = Modifier.height(56.dp),
+                    if (isRegisterMode || authMethod == "phone") {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Box(
-                                    modifier = Modifier.padding(horizontal = 14.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.phone_prefix),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
+                                Text(
+                                    text = "${stringResource(R.string.phone_number)} *",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "(unverified)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
 
-                            OutlinedTextField(
-                                value = phone,
-                                onValueChange = { value ->
-                                    if (phone != value && otpRequested) resetOtpRequest()
-                                    val cleaned = if (value.startsWith("+")) {
-                                        "+" + value.drop(1).filter(Char::isDigit).take(12)
-                                    } else {
-                                        value.filter(Char::isDigit).take(10)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                    modifier = Modifier.height(56.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 14.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.phone_prefix),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
                                     }
-                                    phone = cleaned
-                                    error = null
-                                },
-                                modifier = Modifier.weight(1f),
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Phone,
-                                        contentDescription = null,
-                                        tint = BrandSkyPrimary,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = BrandSkyPrimary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                ),
-                                isError = error != null,
+                                }
+
+                                OutlinedTextField(
+                                    value = phone,
+                                    onValueChange = { value ->
+                                        if (phone != value && otpRequested && authMethod == "phone") resetOtpRequest()
+                                        val cleaned = if (value.startsWith("+")) {
+                                            "+" + value.drop(1).filter(Char::isDigit).take(12)
+                                        } else {
+                                            value.filter(Char::isDigit).take(10)
+                                        }
+                                        phone = cleaned
+                                        error = null
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Phone,
+                                            contentDescription = null,
+                                            tint = BrandSkyPrimary,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    },
+                                    placeholder = { Text("9876543210") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = BrandSkyPrimary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                    isError = error != null,
+                                )
+                            }
+
+                            Text(
+                                text = stringResource(R.string.phone_helper),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-
-                        Text(
-                            text = stringResource(R.string.phone_helper),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
 
                     if (otpRequested) {
@@ -589,6 +710,23 @@ private fun AuthScreen(container: AppContainer) {
                                 ),
                             )
 
+                            devOtp?.let { devCode ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFFEF3C7),
+                                    border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        text = "Development OTP: $devCode",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color(0xFF92400E),
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    )
+                                }
+                            }
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -597,7 +735,10 @@ private fun AuthScreen(container: AppContainer) {
                                 TextButton(onClick = ::resetOtpRequest, enabled = !loading) {
                                     Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text(stringResource(R.string.edit_phone_number), color = BrandSkyPrimary)
+                                    Text(
+                                        text = if (authMethod == "email") stringResource(R.string.edit_email) else stringResource(R.string.edit_phone_number),
+                                        color = BrandSkyPrimary,
+                                    )
                                 }
                                 TextButton(
                                     onClick = {
@@ -613,7 +754,7 @@ private fun AuthScreen(container: AppContainer) {
                                             }
                                         }
                                     },
-                                    enabled = phone.isNotBlank() && !loading,
+                                    enabled = (if (authMethod == "email") email.isNotBlank() else phone.isNotBlank()) && !loading,
                                 ) {
                                     Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
@@ -626,92 +767,120 @@ private fun AuthScreen(container: AppContainer) {
                     deliveryNote?.let { InlineNotice(it, BrandTeal) }
                     error?.let { InlineNotice(it, Danger) }
 
-                        val isDarkTheme = isSystemInDarkTheme()
-                        val isButtonActive = (!isRegisterMode || fullName.isNotBlank()) && phone.isNotBlank() && (!otpRequested || otp.length == 6) && !loading
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    loading = true
-                                    error = null
-                                    try {
-                                        if (otpRequested) {
-                                            if (otp.isBlank()) {
-                                                error = context.getString(R.string.otp_required_error)
-                                                return@launch
-                                            }
-                                            if (otp.length != 6) {
-                                                error = context.getString(R.string.otp_digits_error)
-                                                return@launch
-                                            }
+                    val isDarkTheme = isSystemInDarkTheme()
+                    val isEmailValid = email.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
+                    val isPhoneValid = phone.filter(Char::isDigit).length >= 10 || phone.trim().startsWith("+")
+                    val isNameValid = !isRegisterMode || fullName.trim().length >= 2
+
+                    val isButtonActive = when {
+                        loading -> false
+                        otpRequested -> otp.length == 6
+                        authMethod == "email" -> {
+                            if (isRegisterMode) isEmailValid && isPhoneValid && isNameValid
+                            else isEmailValid
+                        }
+                        else -> {
+                            if (isRegisterMode) isPhoneValid && isNameValid
+                            else isPhoneValid
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                loading = true
+                                error = null
+                                try {
+                                    if (otpRequested) {
+                                        if (otp.isBlank()) {
+                                            error = context.getString(R.string.otp_required_error)
+                                            return@launch
+                                        }
+                                        if (otp.length != 6) {
+                                            error = context.getString(R.string.otp_digits_error)
+                                            return@launch
+                                        }
+                                        val normalizedPhone = if (phone.isNotBlank()) normalizePhone(phone) else ""
+                                        if (authMethod == "email") {
+                                            container.authRepository.verifyEmailOtp(
+                                                email = email.trim(),
+                                                otp = otp.trim(),
+                                                challengeId = challengeId.ifBlank { null },
+                                                fullName = if (isRegisterMode) fullName.trim() else null,
+                                                mobileNumber = if (isRegisterMode) normalizedPhone.ifBlank { null } else null,
+                                            )
+                                        } else {
                                             container.authRepository.verifyOtp(
-                                                normalizePhone(phone),
+                                                normalizedPhone,
                                                 otp.trim(),
                                                 challengeId,
                                             )
-                                            if (isRegisterMode && fullName.isNotBlank()) {
-                                                runCatching {
-                                                    container.authRepository.updateProfile(
-                                                        UpdateProfileBody(
-                                                            fullName = fullName.trim(),
-                                                            email = email.trim().ifBlank { null },
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                        } else {
-                                            requestCode()
                                         }
-                                    } catch (failure: Throwable) {
-                                        error = friendlyError(context, failure)
-                                    } finally {
-                                        loading = false
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isButtonActive) Color(0xFFF9C933) else (if (isDarkTheme) Color(0xFF334155) else Color(0xFFE2E8F0)),
-                                contentColor = if (isButtonActive) Color(0xFF111827) else (if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B)),
-                                disabledContainerColor = if (isDarkTheme) Color(0xFF334155) else Color(0xFFE2E8F0),
-                                disabledContentColor = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B),
-                            ),
-                            enabled = isButtonActive,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (loading) {
-                                    CircularProgressIndicator(
-                                        Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = if (isButtonActive) Color(0xFF111827) else Color.Gray,
-                                    )
-                                    Spacer(Modifier.width(10.dp))
-                                }
-                                Text(
-                                    text = if (otpRequested) {
-                                        if (isRegisterMode) stringResource(R.string.complete_registration)
-                                        else stringResource(R.string.verify_continue)
+                                        if (isRegisterMode && (fullName.isNotBlank() || phone.isNotBlank())) {
+                                            runCatching {
+                                                container.authRepository.updateProfile(
+                                                    UpdateProfileBody(
+                                                        fullName = fullName.trim().ifBlank { null },
+                                                        mobileNumber = normalizedPhone.ifBlank { null },
+                                                        email = email.trim().ifBlank { null },
+                                                    )
+                                                )
+                                            }
+                                        }
                                     } else {
-                                        if (isRegisterMode) "Register & Send OTP"
-                                        else stringResource(R.string.continue_to_otp)
-                                    },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isButtonActive) Color(0xFF111827) else (if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B)),
-                                )
-                                if (!loading && isButtonActive) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Icon(
-                                        imageVector = Icons.Outlined.ArrowForward,
-                                        contentDescription = null,
-                                        tint = Color(0xFF111827),
-                                        modifier = Modifier.size(18.dp),
-                                    )
+                                        requestCode()
+                                    }
+                                } catch (failure: Throwable) {
+                                    error = friendlyError(context, failure)
+                                } finally {
+                                    loading = false
                                 }
                             }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isButtonActive) Color(0xFFF9C933) else (if (isDarkTheme) Color(0xFF334155) else Color(0xFFE2E8F0)),
+                            contentColor = if (isButtonActive) Color(0xFF111827) else (if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B)),
+                            disabledContainerColor = if (isDarkTheme) Color(0xFF334155) else Color(0xFFE2E8F0),
+                            disabledContentColor = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B),
+                        ),
+                        enabled = isButtonActive,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (loading) {
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = if (isButtonActive) Color(0xFF111827) else Color.Gray,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            Text(
+                                text = if (otpRequested) {
+                                    if (isRegisterMode) stringResource(R.string.complete_registration)
+                                    else stringResource(R.string.verify_continue)
+                                } else {
+                                    if (isRegisterMode) "Register & Send OTP"
+                                    else stringResource(R.string.continue_to_otp)
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isButtonActive) Color(0xFF111827) else (if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF64748B)),
+                            )
+                            if (!loading && isButtonActive) {
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.Outlined.ArrowForward,
+                                    contentDescription = null,
+                                    tint = Color(0xFF111827),
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
+                    }
                     }
                 }
             }

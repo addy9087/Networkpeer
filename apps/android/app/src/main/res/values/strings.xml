@@ -195,4 +195,11 @@
     <string name="complete_registration">Complete registration</string>
     <string name="admin_boundary_title">Admin features are on the web console.</string>
     <string name="admin_boundary_body">Please use the web dashboard for admin operations.</string>
+    <string name="email_address">Work Email</string>
+    <string name="email_required">Email address is required</string>
+    <string name="email_invalid_error">Please enter a valid email address</string>
+    <string name="auth_method_email">Email OTP</string>
+    <string name="auth_method_phone">SMS OTP</string>
+    <string name="otp_sent_email">A verification code was sent to your email.</string>
+    <string name="edit_email">Edit email</string>
 </resources>

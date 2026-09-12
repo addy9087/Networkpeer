@@ -47,6 +47,12 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface NetworkPeerApi {
+    @POST("auth/email-otp/request")
+    suspend fun requestEmailOtp(@Body body: EmailOtpRequestBody): ApiEnvelope<OtpRequestResult>
+
+    @POST("auth/email-otp/verify")
+    suspend fun verifyEmailOtp(@Body body: EmailOtpVerifyBody): ApiEnvelope<TokenPair>
+
     @POST("auth/otp/request")
     suspend fun requestOtp(@Body body: OtpRequestBody): ApiEnvelope<OtpRequestResult>
 
@@ -197,6 +203,24 @@ interface TokenRefreshApi {
     @POST("auth/refresh")
     fun refresh(@Body body: RefreshTokenBody): Call<ApiEnvelope<TokenPair>>
 }
+
+@Serializable
+data class EmailOtpRequestBody(
+    val email: String,
+    val role: UserRole,
+    @SerialName("full_name") val fullName: String? = null,
+    @SerialName("mobile_number") val mobileNumber: String? = null,
+)
+
+@Serializable
+data class EmailOtpVerifyBody(
+    val email: String,
+    val otp: String,
+    @SerialName("challenge_id") val challengeId: String? = null,
+    @SerialName("full_name") val fullName: String? = null,
+    @SerialName("mobile_number") val mobileNumber: String? = null,
+    val transport: String = "native",
+)
 
 @Serializable
 data class OtpRequestBody(

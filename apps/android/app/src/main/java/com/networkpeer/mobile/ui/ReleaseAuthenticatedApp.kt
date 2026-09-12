@@ -68,6 +68,7 @@ import com.networkpeer.mobile.ui.theme.BrandSkyPrimary
 import com.networkpeer.mobile.core.model.UserProfile
 import com.networkpeer.mobile.core.model.UpdateProfileBody
 import com.networkpeer.mobile.core.model.OCRResult
+import com.networkpeer.mobile.core.model.NetworkPeerApiException
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -923,7 +924,7 @@ private fun UserProfileScreen(
                 phoneNumber = session.user.phone,
                 fullName = fallbackName,
                 role = session.user.role,
-                verificationStatus = "VERIFIED"
+                isVerified = true
             )
             if (f is NetworkPeerApiException && (f.statusCode == 404 || f.code.contains("404"))) {
                 // Profile row does not exist yet on backend; session fallback active silently
@@ -2574,6 +2575,7 @@ private fun FullScreenOcrDialog(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
+                        }
                     }
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Outlined.Close, contentDescription = "Close")
@@ -2633,7 +2635,7 @@ private fun FullScreenOcrDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Engine: $modelEngine · Confidence: ${((ocrResult?.confidence ?: 0.984) * 100).toInt()}%",
+                        text = "Confidence: ${((ocrResult?.confidence ?: 0.984) * 100).toInt()}%",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
