@@ -2,6 +2,7 @@
 .freebuff/
 
 # Dependencies and generated application artifacts.
+node_modules
 node_modules/
 dist/
 .output/

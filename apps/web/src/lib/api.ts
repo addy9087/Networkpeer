@@ -111,8 +111,8 @@ export type WalletBalance = {
 };
 
 export type OCRResult = {
-  engineVersion?: string; // "Qwen-3-8B-Devanagari-OCR"
-  modelName?: string; // "Qwen 3-8B"
+  engineVersion?: string;
+  modelName?: string;
   text: string;
   hindiText?: string;
   englishText?: string;
@@ -693,5 +693,15 @@ export const api = {
 };
 
 export function realtimeBaseUrl(): string {
-  return new URL(apiBaseUrl).origin;
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  try {
+    if (apiBaseUrl.startsWith("http://") || apiBaseUrl.startsWith("https://")) {
+      return new URL(apiBaseUrl).origin;
+    }
+  } catch {
+    // fallback
+  }
+  return "http://localhost:3000";
 }

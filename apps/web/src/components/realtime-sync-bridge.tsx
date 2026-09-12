@@ -59,22 +59,26 @@ export function RealtimeSyncBridge() {
       });
       return reconciliation;
     };
-    const socket = io(realtimeBaseUrl(), {
-      path: `${import.meta.env.VITE_API_PREFIX ?? "/api/v1"}/realtime`,
-      auth: { token: session.accessToken },
-      transports: ["websocket", "polling"],
-    });
-    socket.on("sync:ready", () => {
-      void reconcile().catch(() => undefined);
-    });
-    socket.on("sync:event", (event: SyncEvent) => {
-      applyEvent(event, true);
-      // Live delivery is an optimization; REST sync advances the durable checkpoint in order.
-      void reconcile().catch(() => undefined);
-    });
+    let socket: ReturnType<typeof io> | null = null;
+    try {
+      socket = io(realtimeBaseUrl(), {
+        path: `${import.meta.env.VITE_API_PREFIX ?? "/api/v1"}/realtime`,
+        auth: { token: session.accessToken },
+        transports: ["websocket", "polling"],
+      });
+      socket.on("sync:ready", () => {
+        void reconcile().catch(() => undefined);
+      });
+      socket.on("sync:event", (event: SyncEvent) => {
+        applyEvent(event, true);
+        void reconcile().catch(() => undefined);
+      });
+    } catch (err) {
+      console.warn("RealtimeSyncBridge initialization bypassed:", err);
+    }
     return () => {
       cancelled = true;
-      socket.disconnect();
+      if (socket) socket.disconnect();
     };
   }, [queryClient, session]);
 

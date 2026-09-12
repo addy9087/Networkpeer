@@ -838,15 +838,26 @@ internal fun statusLabel(status: JobStatus): String = stringResource(
     },
 )
 
-internal fun friendlyError(context: Context, failure: Throwable): String = when (failure) {
-    is NetworkPeerApiException -> {
-        if (failure.statusCode == 401 || failure.code.contains("401") || failure.code.contains("OTP_INVALID") || failure.message.contains("401", ignoreCase = true)) {
-            "Invalid verification code. Please enter the 6-digit code sent to your phone."
-        } else {
-            "${failure.code}: ${failure.message}"
+internal fun friendlyError(context: Context, failure: Throwable): String {
+    android.util.Log.e("NetworkPeer", "API error encountered: ${failure.message}", failure)
+    return when (failure) {
+        is NetworkPeerApiException -> when {
+            failure.statusCode == 401 || failure.code.contains("401", ignoreCase = true) ->
+                "Invalid verification code. Please check the 6-digit code sent to your email."
+            failure.statusCode == 403 || failure.code.contains("403", ignoreCase = true) ->
+                "Action not authorized. Role approval required from admin."
+            failure.statusCode == 404 || failure.code.contains("404", ignoreCase = true) ->
+                "The requested profile or resource could not be found."
+            failure.statusCode == 409 ->
+                "This action has already been performed."
+            failure.statusCode == 429 ->
+                "Too many attempts. Please wait a minute and try again."
+            failure.statusCode in 500..599 ->
+                "Service temporarily unavailable. Please try again shortly."
+            else -> "Unable to complete request. Please check your connection and try again."
         }
+        else -> context.getString(R.string.generic_request_error)
     }
-    else -> context.getString(R.string.generic_request_error)
 }
 
 internal fun formatMoney(cents: Long, currency: String): String {

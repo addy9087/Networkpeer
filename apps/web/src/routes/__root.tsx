@@ -131,9 +131,10 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function useOfflineEvidenceSync() {
   useEffect(() => {
+    if (typeof window === "undefined") return;
     let mounted = true;
     const sync = () => {
-      if (mounted) void flushOfflineEvidence();
+      if (mounted) void flushOfflineEvidence().catch(() => {});
     };
     window.addEventListener("online", sync);
     sync();

@@ -242,14 +242,9 @@ class MarketplaceRepository(
     }
 
     suspend fun workerReviewQueue(jobId: String): ReviewQueueResponse = try {
-        val res = apiCall { api.workerReviewQueue(jobId) }
-        if (res.submissions.isEmpty()) {
-            defaultReviewQueue(jobId)
-        } else {
-            res
-        }
+        apiCall { api.workerReviewQueue(jobId) }
     } catch (_: Throwable) {
-        defaultReviewQueue(jobId)
+        ReviewQueueResponse(emptyList())
     }
 
     suspend fun reviewSubmission(submissionId: String, decision: String, note: String? = null): ReviewSubmissionResult = apiCall {
@@ -257,14 +252,9 @@ class MarketplaceRepository(
     }
 
     suspend fun workerSubmissions(): WorkerSubmissionsResponse = try {
-        val res = apiCall { api.workerSubmissions() }
-        if (res.submissions.isEmpty()) {
-            WorkerSubmissionsResponse(submissions = defaultReviewQueue("job-np-2026-1").submissions)
-        } else {
-            res
-        }
+        apiCall { api.workerSubmissions() }
     } catch (_: Throwable) {
-        WorkerSubmissionsResponse(submissions = defaultReviewQueue("job-np-2026-1").submissions)
+        WorkerSubmissionsResponse(emptyList())
     }
 
     suspend fun sendQualityTelemetry(checkResult: QualityCheckResult): QualityTelemetryResult = apiCall {
@@ -283,34 +273,4 @@ private suspend fun <T> apiCall(request: suspend () -> com.networkpeer.mobile.co
 } catch (error: IOException) {
     throw NetworkPeerApiException("NETWORK_ERROR", "Cannot reach NetworkPeer. Check your connection and try again.")
 }
-
-private fun defaultReviewQueue(jobId: String): ReviewQueueResponse = ReviewQueueResponse(
-    submissions = listOf(
-        SubmissionItem(
-            id = "sub-$jobId-1",
-            jobId = jobId,
-            assignmentId = "asg-$jobId-1",
-            workerId = "worker-778",
-            subtaskId = "$jobId-st-1",
-            unitRef = "Unit 1: Exterior Signage",
-            mediaUrl = "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop&q=80",
-            thumbnailUrl = "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=200&auto=format&fit=crop&q=80",
-            ocrResult = OCRResult(
-                text = "apna chemist अपना केमिस्ट\nOpen 24 Hours\nदवाइयां एवं स्वास्थ्य परामर्श",
-                confidence = 0.984,
-                engineVersion = "Qwen-3-8B-Devanagari-OCR",
-                modelName = "Qwen 3-8B Devanagari OCR",
-                language = "hi+en",
-                detectedScript = "bilingual",
-                hindiText = "अपना केमिस्ट\nदवाइयां एवं स्वास्थ्य परामर्श",
-                englishText = "apna chemist\nOpen 24 Hours",
-                generatedAt = "2026-09-12T15:30:00Z"
-            ),
-            ocrStatus = "ready",
-            ocrSnippet = "apna chemist अपना केमिस्ट",
-            status = "pending_review",
-            submittedAt = "2026-09-12T15:30:00Z"
-        )
-    )
-)
 

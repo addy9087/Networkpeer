@@ -79,6 +79,7 @@ data class AuthUser(
     val id: String,
     val role: UserRole,
     val phone: String,
+    @SerialName("full_name") val fullName: String = "",
 )
 
 @Serializable
@@ -471,8 +472,8 @@ data class QualityCheckResult(
 data class OCRResult(
     val text: String,
     val confidence: Double = 0.98,
-    val engineVersion: String? = "Qwen-3-8B-Devanagari-OCR",
-    val modelName: String? = "Qwen 3-8B",
+    val engineVersion: String? = null,
+    val modelName: String? = null,
     val language: String? = "hi+en",
     val detectedScript: String? = "bilingual", // "hindi", "english", "bilingual"
     val hindiText: String? = null,
@@ -486,7 +487,7 @@ data class OCRResult(
         "hindi" -> "हिन्दी (Hindi - Devnagri)"
         "english" -> "English (Latin)"
         "bilingual" -> "Bilingual (हिन्दी + Eng)"
-        else -> "Devanagari OCR"
+        else -> "OCR Text"
     }
 }
 
@@ -609,7 +610,7 @@ val curatedWorkerJobs: List<WorkerJobSummary> = listOf(
     WorkerJobSummary(
         id = "job-np-2026-2",
         title = "Pharmacy License & Devanagari Board Verification",
-        description = "Verify registered chemist counter license and store Hindi signboard using Qwen 3-8B Devanagari OCR scanner.",
+        description = "Verify registered chemist counter license and store Hindi signboard using OCR scanner.",
         category = "COMPLIANCE",
         priority = 2,
         budget_cents = 65000L,
@@ -690,7 +691,7 @@ fun getCuratedWorkerJobDetail(jobId: String): WorkerJobDetail {
                 id = "${summary.id}-st-1",
                 job_id = summary.id,
                 title = "Capture exterior signboard showing Hindi (Devanagari) and English text",
-                description = "Align camera clearly on main signboard. Qwen 3-8B OCR will extract and verify both Devanagari and Latin script text.",
+                description = "Align camera clearly on main signboard. OCR will extract and verify both Devanagari and Latin script text.",
                 sequence_order = 1,
                 is_required = true,
                 status = SubtaskStatus.PENDING,
