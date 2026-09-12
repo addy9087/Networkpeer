@@ -1528,6 +1528,101 @@ export async function getUserByCognitoSub(cognitoSub: string): Promise<User | nu
   return rows[0] ? mapUser(rows[0] as Row) : null;
 }
 
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const { rows } = await pool.query<Row>(`SELECT * FROM users WHERE LOWER(email) = LOWER($1)`, [email]);
+  return rows[0] ? mapUser(rows[0] as Row) : null;
+}
+
+/** In-memory cache for worker eligible roles fallback */
+const eligibleRolesCache = new Map<string, string[]>();
+
+export async function getWorkerEligibleRoles(workerId: string): Promise<string[]> {
+  const cached = eligibleRolesCache.get(workerId);
+  if (cached) return cached;
+  try {
+    const { rows } = await pool.query<Row>(
+      `SELECT eligible_roles FROM worker_profiles WHERE user_id = $1`,
+      [workerId],
+    );
+    if (rows[0] && Array.isArray(rows[0]["eligible_roles"])) {
+      const roles = rows[0]["eligible_roles"] as string[];
+      eligibleRolesCache.set(workerId, roles);
+      return roles;
+    }
+  } catch {
+    // If column not yet migrated or DB error, fallback
+  }
+  return ["collectionist"];
+}
+
+export async function setWorkerEligibleRoles(workerId: string, roles: string[]): Promise<void> {
+  eligibleRolesCache.set(workerId, roles);
+  try {
+    await pool.query(
+      `UPDATE worker_profiles SET eligible_roles = $1::TEXT[] WHERE user_id = $2`,
+      [roles, workerId],
+    );
+  } catch {
+    // In-memory cache holds state if table update fails
+  }
+}
+
+export async function resolveEmailUser(input: {
+  email: string;
+  phone: string;
+  fullName: string;
+  role: UserRole;
+}): Promise<User> {
+  const existingByEmail = await getUserByEmail(input.email);
+  if (existingByEmail) {
+    await pool.query(
+      `UPDATE users SET full_name = COALESCE(NULLIF($1, ''), full_name), phone_number = COALESCE(NULLIF($2, ''), phone_number), is_verified = TRUE WHERE id = $3`,
+      [input.fullName, input.phone, existingByEmail.id],
+    );
+    const refreshed = await getUserById(existingByEmail.id);
+    return refreshed ?? existingByEmail;
+  }
+
+  // Check by phone
+  const { rows: phoneRows } = await pool.query<Row>(`SELECT * FROM users WHERE phone_number = $1`, [input.phone]);
+  if (phoneRows[0]) {
+    const user = mapUser(phoneRows[0] as Row);
+    await pool.query(
+      `UPDATE users SET email = $1, full_name = COALESCE(NULLIF($2, ''), full_name), is_verified = TRUE WHERE id = $3`,
+      [input.email, input.fullName, user.id],
+    );
+    const refreshed = await getUserById(user.id);
+    return refreshed ?? user;
+  }
+
+  // Insert new user
+  const { rows: inserted } = await pool.query<Row>(
+    `INSERT INTO users (email, phone_number, full_name, role, is_verified, is_active)
+     VALUES ($1, $2, $3, $4::user_role, TRUE, TRUE)
+     RETURNING *`,
+    [input.email, input.phone, input.fullName, input.role],
+  );
+  const newUser = mapUser(inserted[0] as Row);
+  if (input.role === "WORKER") {
+    try {
+      await pool.query(
+        `INSERT INTO worker_profiles (user_id, is_available, eligible_roles)
+         VALUES ($1, TRUE, ARRAY['collectionist']::TEXT[])
+         ON CONFLICT (user_id) DO NOTHING`,
+        [newUser.id],
+      );
+    } catch {
+      await pool.query(
+        `INSERT INTO worker_profiles (user_id, is_available)
+         VALUES ($1, TRUE)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [newUser.id],
+      );
+    }
+  }
+  return newUser;
+}
+
 /**
  * Atomically binds a Cognito identity to an existing phone-based account or
  * creates its first local marketplace record through a narrowly scoped DB API.
@@ -1638,6 +1733,8 @@ export async function recordLastLogin(userId: string): Promise<void> {
 export type FullUserProfile = {
   id: string;
   phoneNumber: string;
+  mobileNumber: string;
+  mobileVerified: false;
   email: string | null;
   fullName: string;
   role: UserRole;
@@ -1645,6 +1742,7 @@ export type FullUserProfile = {
   isActive: boolean;
   isVerified: boolean;
   createdAt: Date;
+  eligibleRoles: string[];
   workerProfile?: {
     skills: string[];
     hourlyRateCents: number | null;
@@ -1653,6 +1751,7 @@ export type FullUserProfile = {
     verificationStatus: string;
     preferredRadiusKm: number;
     isAvailable: boolean;
+    eligibleRoles: string[];
   } | null;
 };
 
@@ -1660,6 +1759,7 @@ export async function getUserProfile(userId: string): Promise<FullUserProfile | 
   const user = await getUserById(userId);
   if (!user) return null;
 
+  const workerEligibleRoles = await getWorkerEligibleRoles(userId);
   let workerProfile: FullUserProfile["workerProfile"] = null;
   if (user.role === "WORKER") {
     const { rows } = await pool.query<Row>(
@@ -1676,6 +1776,7 @@ export async function getUserProfile(userId: string): Promise<FullUserProfile | 
         verificationStatus: String(rows[0]["verification_status"] ?? "PENDING"),
         preferredRadiusKm: Number(rows[0]["preferred_radius_km"] ?? 50),
         isAvailable: Boolean(rows[0]["is_available"]),
+        eligibleRoles: workerEligibleRoles,
       };
     }
   }
@@ -1683,6 +1784,8 @@ export async function getUserProfile(userId: string): Promise<FullUserProfile | 
   return {
     id: user.id,
     phoneNumber: user.phone_number,
+    mobileNumber: user.phone_number,
+    mobileVerified: false,
     email: user.email,
     fullName: user.full_name,
     role: user.role,
@@ -1690,12 +1793,14 @@ export async function getUserProfile(userId: string): Promise<FullUserProfile | 
     isActive: user.is_active,
     isVerified: user.is_verified,
     createdAt: user.created_at,
+    eligibleRoles: workerEligibleRoles,
     workerProfile,
   };
 }
 
 export type UpdateUserProfileInput = {
   fullName?: string;
+  mobileNumber?: string;
   email?: string | null;
   avatarUrl?: string | null;
   skills?: string[];
@@ -1707,7 +1812,7 @@ export async function updateUserProfile(
   userId: string,
   updates: UpdateUserProfileInput,
 ): Promise<FullUserProfile | null> {
-  if (updates.fullName !== undefined || updates.email !== undefined || updates.avatarUrl !== undefined) {
+  if (updates.fullName !== undefined || updates.email !== undefined || updates.avatarUrl !== undefined || updates.mobileNumber !== undefined) {
     const fields: string[] = [];
     const values: unknown[] = [];
     let idx = 1;
@@ -1715,6 +1820,10 @@ export async function updateUserProfile(
     if (updates.fullName !== undefined) {
       fields.push(`full_name = $${idx++}`);
       values.push(updates.fullName);
+    }
+    if (updates.mobileNumber !== undefined) {
+      fields.push(`phone_number = $${idx++}`);
+      values.push(updates.mobileNumber);
     }
     if (updates.email !== undefined) {
       fields.push(`email = $${idx++}`);

@@ -155,6 +155,7 @@ export type AdminUserSummary = {
   workerProfile: {
     verificationStatus: "PENDING" | "VERIFIED" | "REJECTED" | "SUSPENDED";
     isAvailable: boolean;
+    eligibleRoles?: string[];
   } | null;
   activeJobCount: number;
 };
@@ -366,6 +367,35 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 }
 
 export const api = {
+  async requestEmailOtp(email: string, role?: string): Promise<OtpRequestResult> {
+    return request("/auth/email-otp/request", {
+      method: "POST",
+      body: JSON.stringify({ email, role: role ?? "CLIENT" }),
+    });
+  },
+  async verifyEmailOtp(input: {
+    email: string;
+    otp: string;
+    challengeId?: string;
+    fullName?: string;
+    mobileNumber?: string;
+    role?: Exclude<AppRole, "ADMIN">;
+  }): Promise<AuthSession & { isNewAccount: boolean }> {
+    const pair = await request<TokenPair & { is_new_account?: boolean }>("/auth/email-otp/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        email: input.email,
+        otp: input.otp,
+        challenge_id: input.challengeId,
+        full_name: input.fullName,
+        mobile_number: input.mobileNumber,
+        transport: "browser",
+      }),
+    });
+    const session = sessionFromTokenPair(pair);
+    authSession.set(session);
+    return { ...session, isNewAccount: Boolean(pair.is_new_account) };
+  },
   async requestOtp(phoneNumber: string): Promise<OtpRequestResult> {
     return request("/auth/otp/request", {
       method: "POST",
@@ -688,6 +718,16 @@ export const api = {
         is_available: isAvailable,
         reason,
       }),
+    });
+  },
+  adminSetWorkerRole(
+    workerId: string,
+    role: "correctionist" | "collectionist",
+    action: "grant" | "revoke",
+  ): Promise<{ workerId: string; eligibleRoles: string[]; action: string }> {
+    return request(`/admin/workers/${encodeURIComponent(workerId)}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ role, action }),
     });
   },
 };

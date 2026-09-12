@@ -145,4 +145,6 @@ export type {
   SubmissionMedia,
 } from "./submission";
 export { DEFAULT_QUALITY_THRESHOLDS, type QualityThresholds } from "./quality";
+export type { EmailOtpChallenge, EmailOtpRequestInput, EmailOtpVerifyInput } from "./auth";
+export type { IdentityFields, UserProfileResponse } from "./profile";
 

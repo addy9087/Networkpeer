@@ -90,6 +90,26 @@ function AdminWorkers() {
     [load],
   );
 
+  const toggleCorrectionistRole = useCallback(
+    async (workerId: string, action: "grant" | "revoke") => {
+      setUpdatingId(workerId);
+      try {
+        await api.adminSetWorkerRole(workerId, "correctionist", action);
+        await load();
+        toast.success(
+          action === "grant"
+            ? "Granted Correctionist role to worker."
+            : "Revoked Correctionist role from worker.",
+        );
+      } catch (requestError) {
+        toast.error(errorMessage(requestError));
+      } finally {
+        setUpdatingId(null);
+      }
+    },
+    [load],
+  );
+
   return (
     <div className="animate-rise space-y-6">
       <PageHeader
@@ -97,7 +117,7 @@ function AdminWorkers() {
         description="Review worker verification status and operational access."
       />
 
-      <SectionCard title="All workers" description="Search and manage worker trust levels">
+      <SectionCard title="All workers" description="Search and manage worker trust levels and correctionist roles">
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="relative max-w-sm flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -131,7 +151,8 @@ function AdminWorkers() {
               <thead className="text-sm uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Worker</th>
-                  <th className="px-3 py-3">Phone</th>
+                  <th className="px-3 py-3">Mobile (Unverified)</th>
+                  <th className="px-3 py-3">Roles</th>
                   <th className="px-3 py-3">Verification</th>
                   <th className="px-3 py-3">Active jobs</th>
                   <th className="px-3 py-3">Actions</th>
@@ -141,6 +162,8 @@ function AdminWorkers() {
                 {filtered.map((worker) => {
                   const status = worker.workerProfile?.verificationStatus ?? "PENDING";
                   const isUpdating = updatingId === worker.id;
+                  const isCorrectionist =
+                    worker.workerProfile?.eligibleRoles?.includes("correctionist") ?? false;
                   return (
                     <tr key={worker.id} className="border-t border-border/70 align-middle">
                       <td className="px-3 py-3">
@@ -154,7 +177,26 @@ function AdminWorkers() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-muted-foreground">{worker.phone_number}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground">{worker.phone_number}</span>
+                          <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground font-mono">
+                            unverified
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium">
+                            Collectionist
+                          </span>
+                          {isCorrectionist ? (
+                            <span className="rounded-md bg-primary/20 text-primary px-2 py-0.5 text-xs font-semibold">
+                              Correctionist
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="px-3 py-3">
                         <Chip
                           tone={
@@ -170,15 +212,34 @@ function AdminWorkers() {
                       </td>
                       <td className="px-3 py-3">{worker.activeJobCount}</td>
                       <td className="px-3 py-3">
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isCorrectionist ? (
+                            <button
+                              type="button"
+                              disabled={isUpdating}
+                              onClick={() => void toggleCorrectionistRole(worker.id, "revoke")}
+                              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-600 hover:bg-amber-500/20 disabled:opacity-60"
+                            >
+                              {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Revoke Correctionist"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isUpdating}
+                              onClick={() => void toggleCorrectionistRole(worker.id, "grant")}
+                              className="rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 disabled:opacity-60"
+                            >
+                              {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Grant Correctionist"}
+                            </button>
+                          )}
                           {status !== "VERIFIED" && (
                             <button
                               type="button"
                               disabled={isUpdating}
                               onClick={() => void verifyWorker(worker.id)}
-                              className="rounded-lg border border-success/30 bg-success/10 px-2.5 py-1.5 text-sm font-medium text-success disabled:opacity-60"
+                              className="rounded-lg border border-success/30 bg-success/10 px-2.5 py-1.5 text-xs font-medium text-success disabled:opacity-60"
                             >
-                              {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                              Verify
                             </button>
                           )}
                           {status !== "SUSPENDED" && (
@@ -186,7 +247,7 @@ function AdminWorkers() {
                               type="button"
                               disabled={isUpdating}
                               onClick={() => void suspendWorker(worker.id)}
-                              className="rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-sm font-medium text-destructive disabled:opacity-60"
+                              className="rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive disabled:opacity-60"
                             >
                               Suspend
                             </button>

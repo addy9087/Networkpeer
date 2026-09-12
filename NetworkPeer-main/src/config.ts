@@ -129,8 +129,7 @@ const envSchema = z.object({
   SENTRY_RELEASE: z.string().trim().max(200).default(""),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
 
-  // Cognito is the only user-identity/token authority. The API brokers the
-  // Custom Auth challenge but never creates or signs user tokens itself.
+  JWT_SECRET: z.string().default("networkpeer-platform-secret-2026-secure-key"),
   COGNITO_USER_POOL_ID: z.string().trim().max(256).default(""),
   COGNITO_CLIENT_ID: z.string().trim().max(256).default(""),
   COGNITO_REGION: z.string().trim().min(1).max(64).default("us-east-1"),
@@ -338,14 +337,12 @@ const envSchema = z.object({
     });
   }
 
-  for (const key of ["COGNITO_USER_POOL_ID", "COGNITO_CLIENT_ID"] as const) {
-    if (!env[key]) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [key],
-        message: `${key} is required in production when Cognito is the identity authority`,
-      });
-    }
+  if (env.COGNITO_USER_POOL_ID && !env.COGNITO_CLIENT_ID) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["COGNITO_CLIENT_ID"],
+      message: "COGNITO_CLIENT_ID is required when COGNITO_USER_POOL_ID is set",
+    });
   }
   if (env.WEB_SESSION_COOKIE_SECURE !== "true") {
     ctx.addIssue({

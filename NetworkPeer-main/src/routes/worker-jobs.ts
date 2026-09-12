@@ -4,6 +4,7 @@ import { fail, ok } from "../contracts.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { WorkerJobServiceError, workerJobService } from "../services/worker-job-service.js";
 import { parseBody } from "../utils/validation.js";
+import { getWorkerEligibleRoles } from "../repository.js";
 
 const nearbyQuerySchema = z.object({
   radius_km: z.coerce.number().finite().min(1).max(500).optional(),
@@ -124,8 +125,14 @@ export default async function workerJobsRoutes(app: FastifyInstance): Promise<vo
         }
       });
 
-      // Revision 2 Change 2: Correctionist Review Queue
-      child.get("/worker/jobs/:jobId/review-queue", async (request, reply) => {
+      // Revision 5 §22.3: Correctionist Review Queue
+      // RELEASE BLOCKER §26 Finding 2: Server-side gating with 403 Forbidden
+      const handleReviewQueue = async (request: FastifyRequest, reply: FastifyReply) => {
+        const eligibleRoles = await getWorkerEligibleRoles(request.auth.userId);
+        if (!eligibleRoles.includes("correctionist")) {
+          return reply.code(403).send(fail("FORBIDDEN", "Correctionist role required. Worker must be approved by an administrator."));
+        }
+
         const params = jobParamsSchema.safeParse(request.params);
         if (!params.success) {
           return reply.code(400).send(fail("VALIDATION_ERROR", "Invalid job id"));
@@ -160,10 +167,19 @@ export default async function workerJobsRoutes(app: FastifyInstance): Promise<vo
         } catch (err) {
           return handleWorkerJobError(request, reply, err);
         }
-      });
+      };
 
-      // Revision 2 Change 2: Review submission decision (Approve / Redo)
-      child.post("/worker/submissions/:submissionId/review", async (request, reply) => {
+      child.get("/worker/jobs/:jobId/review-queue", handleReviewQueue);
+      child.get("/jobs/:jobId/review-queue", handleReviewQueue);
+
+      // Revision 5 §22.3: Review submission decision (Approve / Redo)
+      // RELEASE BLOCKER §26 Finding 2: Server-side gating with 403 Forbidden
+      const handleSubmissionReview = async (request: FastifyRequest, reply: FastifyReply) => {
+        const eligibleRoles = await getWorkerEligibleRoles(request.auth.userId);
+        if (!eligibleRoles.includes("correctionist")) {
+          return reply.code(403).send(fail("FORBIDDEN", "Correctionist role required. Worker must be approved by an administrator."));
+        }
+
         const reviewSchema = z.object({
           decision: z.enum(["approve", "redo", "reject"]),
           note: z.string().trim().max(1000).optional(),
@@ -187,7 +203,10 @@ export default async function workerJobsRoutes(app: FastifyInstance): Promise<vo
           status: parsed.value.decision === "approve" ? "approved" : "redo_requested",
           reviewEvent,
         });
-      });
+      };
+
+      child.post("/worker/submissions/:submissionId/review", handleSubmissionReview);
+      child.post("/submissions/:submissionId/review", handleSubmissionReview);
 
       // Revision 2 Change 6: Worker's own submissions with live OCR snippets
       child.get("/worker/submissions/me", async (_request) => {

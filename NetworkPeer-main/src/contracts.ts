@@ -368,3 +368,33 @@ export type JobReviewSummary = {
   redoRequested: number;
 };
 
+// Revision 5 Contracts (§12, §21, §22)
+export interface EmailOtpChallenge {
+  id: string;
+  email: string;
+  codeHash: string;
+  expiresAt: string;
+  attempts: number;
+  consumedAt?: string;
+}
+
+export interface IdentityFields {
+  fullName: string;
+  mobileNumber: string;
+  mobileVerified: false;
+}
+
+export interface UserProfileResponse {
+  id: string;
+  fullName: string;
+  email: string | null;
+  phoneNumber: string;
+  mobileNumber: string;
+  mobileVerified: false;
+  role: UserRole;
+  avatarUrl?: string | null;
+  isActive: boolean;
+  isVerified: boolean;
+  eligibleRoles?: WorkerRole[];
+}
+
