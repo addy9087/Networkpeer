@@ -18,5 +18,10 @@ export default defineConfig({
   nitro: {
     preset: "vercel",
     noExternals: true,
+    routeRules: {
+      "/api/v1/**": {
+        proxy: "http://networkpeer-staging-api-alb-969746120.eu-north-1.elb.amazonaws.com/api/v1/**",
+      },
+    },
   },
 } as any);

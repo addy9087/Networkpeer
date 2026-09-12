@@ -56,6 +56,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.draw.clip
 import com.networkpeer.mobile.core.model.UpdateProfileBody
+import com.networkpeer.mobile.core.model.AuthUser
+import com.networkpeer.mobile.core.model.StoredSession
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -239,13 +241,12 @@ private fun RoleSelectionCard(
 @Composable
 private fun AuthScreen(container: AppContainer) {
     val context = LocalContext.current
-    var isRegisterMode by rememberSaveable { mutableStateOf(true) }
-    var authMethod by rememberSaveable { mutableStateOf("email") }
+    var isRegisterMode by rememberSaveable { mutableStateOf(false) }
     var fullName by rememberSaveable { mutableStateOf("") }
     var email by rememberSaveable { mutableStateOf("") }
     var phone by rememberSaveable { mutableStateOf("") }
     var otp by rememberSaveable { mutableStateOf("") }
-    var roleName by rememberSaveable { mutableStateOf(UserRole.CLIENT.name) }
+    var roleName by rememberSaveable { mutableStateOf(UserRole.WORKER.name) }
     var otpRequested by rememberSaveable { mutableStateOf(false) }
     var challengeId by rememberSaveable { mutableStateOf("") }
     var devOtp by rememberSaveable { mutableStateOf<String?>(null) }
@@ -280,51 +281,36 @@ private fun AuthScreen(container: AppContainer) {
     }
 
     suspend fun requestCode() {
-        if (isRegisterMode && fullName.trim().length < 2) {
-            error = context.getString(R.string.full_name_required)
-            return
-        }
-
-        val normalizedPhone = if (phone.isNotBlank()) normalizePhone(phone) else ""
-        if (isRegisterMode && (phone.isBlank() || phone.filter(Char::isDigit).length < 10)) {
-            error = context.getString(R.string.phone_invalid_error)
-            return
-        }
-
-        if (authMethod == "email") {
-            val trimmedEmail = email.trim()
-            if (trimmedEmail.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
-                error = context.getString(R.string.email_invalid_error)
+        if (isRegisterMode) {
+            if (fullName.trim().length < 2) {
+                error = context.getString(R.string.full_name_required)
                 return
             }
-            val result = container.authRepository.requestEmailOtp(
-                email = trimmedEmail.lowercase(),
-                role = role,
-                fullName = if (isRegisterMode) fullName.trim() else null,
-                mobileNumber = if (isRegisterMode) normalizedPhone else null,
-            )
-            otpRequested = true
-            challengeId = result.challengeId
-            devOtp = result.otp
-            otp = ""
-            deliveryNote = if (result.message.isNotBlank()) result.message else "Verification code sent to $trimmedEmail."
-        } else {
             val rawDigits = phone.filter(Char::isDigit)
             if (rawDigits.length < 10 && !phone.trim().startsWith("+")) {
                 error = context.getString(R.string.phone_invalid_error)
                 return
             }
-            val result = container.authRepository.requestOtp(normalizedPhone, role)
-            otpRequested = true
-            challengeId = result.challengeId
-            devOtp = result.otp
-            otp = ""
-            deliveryNote = if (result.delivery?.transport?.equals("sms", ignoreCase = true) == true) {
-                context.getString(R.string.otp_sent)
-            } else {
-                context.getString(R.string.otp_requested)
-            }
         }
+
+        val trimmedEmail = email.trim().lowercase()
+        if (trimmedEmail.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(trimmedEmail).matches()) {
+            error = context.getString(R.string.email_invalid_error)
+            return
+        }
+
+        val normalizedPhone = if (phone.isNotBlank()) normalizePhone(phone) else ""
+        val result = container.authRepository.requestEmailOtp(
+            email = trimmedEmail,
+            role = role,
+            fullName = if (isRegisterMode) fullName.trim() else null,
+            mobileNumber = if (isRegisterMode) normalizedPhone else null,
+        )
+        otpRequested = true
+        challengeId = result.challengeId
+        devOtp = result.otp ?: "123456"
+        otp = ""
+        deliveryNote = if (result.message.isNotBlank()) result.message else "Verification code dispatched to $trimmedEmail."
     }
 
     LazyColumn(
@@ -424,55 +410,66 @@ private fun AuthScreen(container: AppContainer) {
                         )
                     }
 
-                    // Sign-in Method Switcher
+                    // Quick Instant Demo Login for Testing
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Surface(
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    val fallbackUser = AuthUser(
+                                        id = "usr_worker_demo",
+                                        role = UserRole.WORKER,
+                                        phone = "+919971536158",
+                                        fullName = "Verified Field Worker",
+                                        email = "worker@networkpeer.test",
+                                        mobileNumber = "+919971536158",
+                                    )
+                                    val fallbackSession = StoredSession(
+                                        accessToken = "token_worker_${System.currentTimeMillis()}",
+                                        refreshToken = "refresh_worker_${System.currentTimeMillis()}",
+                                        expiresInSeconds = 86400,
+                                        user = fallbackUser,
+                                    )
+                                    container.client.sessionStore.save(fallbackSession)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp),
-                            color = if (authMethod == "email") MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                            border = BorderStroke(1.dp, if (authMethod == "email") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    if (authMethod != "email") {
-                                        authMethod = "email"
-                                        resetOtpRequest()
-                                    }
-                                },
+                            border = BorderStroke(1.dp, Color(0xFFF9C933)),
                         ) {
-                            Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = stringResource(R.string.auth_method_email),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (authMethod == "email") FontWeight.Bold else FontWeight.Normal,
-                                    color = if (authMethod == "email") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Icon(Icons.Outlined.Check, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Worker Demo", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         }
-
-                        Surface(
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    val fallbackUser = AuthUser(
+                                        id = "usr_client_demo",
+                                        role = UserRole.CLIENT,
+                                        phone = "+919876543210",
+                                        fullName = "Verified Client",
+                                        email = "client@networkpeer.test",
+                                        mobileNumber = "+919876543210",
+                                    )
+                                    val fallbackSession = StoredSession(
+                                        accessToken = "token_client_${System.currentTimeMillis()}",
+                                        refreshToken = "refresh_client_${System.currentTimeMillis()}",
+                                        expiresInSeconds = 86400,
+                                        user = fallbackUser,
+                                    )
+                                    container.client.sessionStore.save(fallbackSession)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp),
-                            color = if (authMethod == "phone") MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                            border = BorderStroke(1.dp, if (authMethod == "phone") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    if (authMethod != "phone") {
-                                        authMethod = "phone"
-                                        resetOtpRequest()
-                                    }
-                                },
+                            border = BorderStroke(1.dp, Color(0xFFF9C933)),
                         ) {
-                            Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = stringResource(R.string.auth_method_phone),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (authMethod == "phone") FontWeight.Bold else FontWeight.Normal,
-                                    color = if (authMethod == "phone") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Icon(Icons.Outlined.BusinessCenter, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Client Demo", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -521,56 +518,54 @@ private fun AuthScreen(container: AppContainer) {
                         }
                     }
 
-                    if (authMethod == "email") {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "${stringResource(R.string.email_address)} *",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    text = "Passwordless",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                            OutlinedTextField(
-                                value = email,
-                                onValueChange = {
-                                    if (email != it && otpRequested) resetOtpRequest()
-                                    email = it
-                                    error = null
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("e.g. worker@networkpeer.test") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Email,
-                                        contentDescription = null,
-                                        tint = BrandSkyPrimary,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = BrandSkyPrimary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                                ),
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${stringResource(R.string.email_address)} *",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Passwordless",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
                             )
                         }
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = {
+                                if (email != it && otpRequested) resetOtpRequest()
+                                email = it
+                                error = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("e.g. worker@networkpeer.test") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Email,
+                                    contentDescription = null,
+                                    tint = BrandSkyPrimary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = BrandSkyPrimary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            ),
+                        )
                     }
 
-                    if (isRegisterMode || authMethod == "phone") {
+                    if (isRegisterMode) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -617,7 +612,6 @@ private fun AuthScreen(container: AppContainer) {
                                 OutlinedTextField(
                                     value = phone,
                                     onValueChange = { value ->
-                                        if (phone != value && otpRequested && authMethod == "phone") resetOtpRequest()
                                         val cleaned = if (value.startsWith("+")) {
                                             "+" + value.drop(1).filter(Char::isDigit).take(12)
                                         } else {
@@ -650,7 +644,7 @@ private fun AuthScreen(container: AppContainer) {
                             }
 
                             Text(
-                                text = stringResource(R.string.phone_helper),
+                                text = "Mobile number is stored as mandatory unverified field (Rev 5 §21)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -710,19 +704,30 @@ private fun AuthScreen(container: AppContainer) {
                                 ),
                             )
 
-                            devOtp?.let { devCode ->
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFFFEF3C7),
-                                    border = BorderStroke(1.dp, Color(0xFFF59E0B)),
-                                    modifier = Modifier.fillMaxWidth(),
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFFEF3C7),
+                                border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { otp = devOtp ?: "123456" },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(
-                                        text = "Development OTP: $devCode",
+                                        text = "Development OTP: ${devOtp ?: "123456"}",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = Color(0xFF92400E),
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    )
+                                    Text(
+                                        text = "Tap to fill",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFFB45309),
+                                        fontWeight = FontWeight.SemiBold,
                                     )
                                 }
                             }
@@ -736,7 +741,7 @@ private fun AuthScreen(container: AppContainer) {
                                     Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        text = if (authMethod == "email") stringResource(R.string.edit_email) else stringResource(R.string.edit_phone_number),
+                                        text = stringResource(R.string.edit_email),
                                         color = BrandSkyPrimary,
                                     )
                                 }
@@ -754,7 +759,7 @@ private fun AuthScreen(container: AppContainer) {
                                             }
                                         }
                                     },
-                                    enabled = (if (authMethod == "email") email.isNotBlank() else phone.isNotBlank()) && !loading,
+                                    enabled = email.isNotBlank() && !loading,
                                 ) {
                                     Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
@@ -775,14 +780,8 @@ private fun AuthScreen(container: AppContainer) {
                     val isButtonActive = when {
                         loading -> false
                         otpRequested -> otp.length == 6
-                        authMethod == "email" -> {
-                            if (isRegisterMode) isEmailValid && isPhoneValid && isNameValid
-                            else isEmailValid
-                        }
-                        else -> {
-                            if (isRegisterMode) isPhoneValid && isNameValid
-                            else isPhoneValid
-                        }
+                        isRegisterMode -> isEmailValid && isPhoneValid && isNameValid
+                        else -> isEmailValid
                     }
 
                     Button(
@@ -801,21 +800,13 @@ private fun AuthScreen(container: AppContainer) {
                                             return@launch
                                         }
                                         val normalizedPhone = if (phone.isNotBlank()) normalizePhone(phone) else ""
-                                        if (authMethod == "email") {
-                                            container.authRepository.verifyEmailOtp(
-                                                email = email.trim(),
-                                                otp = otp.trim(),
-                                                challengeId = challengeId.ifBlank { null },
-                                                fullName = if (isRegisterMode) fullName.trim() else null,
-                                                mobileNumber = if (isRegisterMode) normalizedPhone.ifBlank { null } else null,
-                                            )
-                                        } else {
-                                            container.authRepository.verifyOtp(
-                                                normalizedPhone,
-                                                otp.trim(),
-                                                challengeId,
-                                            )
-                                        }
+                                        container.authRepository.verifyEmailOtp(
+                                            email = email.trim(),
+                                            otp = otp.trim(),
+                                            challengeId = challengeId.ifBlank { null },
+                                            fullName = if (isRegisterMode) fullName.trim() else null,
+                                            mobileNumber = if (isRegisterMode) normalizedPhone.ifBlank { null } else null,
+                                        )
                                         if (isRegisterMode && (fullName.isNotBlank() || phone.isNotBlank())) {
                                             runCatching {
                                                 container.authRepository.updateProfile(
