@@ -348,38 +348,6 @@
   animation: fade-slide-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Aceternity UI 3D & Futuristic Beam / Grid Effects */
-@utility bg-grid-futuristic {
-  background-size: 36px 36px;
-  background-image: 
-    linear-gradient(to right, color-mix(in oklab, var(--foreground) 5%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklab, var(--foreground) 5%, transparent) 1px, transparent 1px);
-}
-
-.glow-card-3d {
-  position: relative;
-  border-radius: 1rem;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.glow-card-3d:hover {
-  transform: translateY(-4px) scale(1.01);
-  box-shadow: 0 16px 32px -8px color-mix(in oklab, var(--primary) 22%, transparent);
-}
-
-/* Rapido High-Contrast Palette */
-.rapido-accent-bg {
-  background-color: #F9D000;
-  color: #111111;
-  font-weight: 700;
-}
-
-.rapido-card {
-  border: 2px solid #111111;
-  background-color: #ffffff;
-  color: #111111;
-}
-
 /* ====== WORKER PORTAL - SMALLER FONTS ONLY ====== */
 .worker-portal-container {
   font-size: 0.85rem !important;
@@ -508,33 +476,4 @@
   );
   background-size: 200% 100%;
   animation: shimmer 1.6s linear infinite;
-}
-
-/* Remove native OS 3D bevel / glossy shine on select dropdowns (macOS/WebKit Aqua reset) */
-@layer base {
-  select,
-  select:focus,
-  select:hover {
-    appearance: none !important;
-    -webkit-appearance: none !important;
-    -moz-appearance: none !important;
-    background-color: var(--card) !important;
-    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
-    background-repeat: no-repeat !important;
-    background-position: right 0.75rem center !important;
-    background-size: 1rem !important;
-    padding-right: 2.25rem !important;
-  }
-}
-
-select {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  -moz-appearance: none !important;
-  background-color: var(--card) !important;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
-  background-repeat: no-repeat !important;
-  background-position: right 0.75rem center !important;
-  background-size: 1rem !important;
-  padding-right: 2.25rem !important;
 }

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell, Briefcase, LayoutDashboard, PlusCircle, Wallet, User } from "lucide-react";
 
 import { PortalShell, type NavItem } from "@/components/shell/portal-shell";
+import { RouteGuard } from "@/components/route-guard";
 import { api } from "@/lib/api";
 import { useAuthSession } from "@/lib/auth-session";
 
@@ -25,6 +26,7 @@ function ClientLayout() {
     queryKey: ["notifications"],
     queryFn: api.notifications,
     enabled: Boolean(session),
+    retry: false,
   });
   const unread = Array.isArray(notifications.data?.items)
     ? notifications.data.items.filter((notification) => notification && notification.read_at === null).length
@@ -34,22 +36,24 @@ function ClientLayout() {
   );
 
   return (
-    <PortalShell
-      className="client-portal-root text-base"
-      brand="NetworkPeers"
-      brandSub="Client workspace"
-      nav={nav}
-      identity="Client"
-      headerAction={
-        <Link
-          to="/client/jobs/new"
-          className="press gradient-brand shadow-glow hidden items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-base font-semibold text-primary-foreground sm:inline-flex"
-        >
-          <PlusCircle className="h-4 w-4" /> New job
-        </Link>
-      }
-    >
-      <Outlet />
-    </PortalShell>
+    <RouteGuard role="CLIENT">
+      <PortalShell
+        className="client-portal-root text-base"
+        brand="NetworkPeers"
+        brandSub="Client workspace"
+        nav={nav}
+        identity="Client"
+        headerAction={
+          <Link
+            to="/client/jobs/new"
+            className="press gradient-brand shadow-glow hidden items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-base font-semibold text-primary-foreground sm:inline-flex"
+          >
+            <PlusCircle className="h-4 w-4" /> New job
+          </Link>
+        }
+      >
+        <Outlet />
+      </PortalShell>
+    </RouteGuard>
   );
 }

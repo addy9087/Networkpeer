@@ -19,6 +19,13 @@ import {
   type JobStatus,
   type WorkerJobDetail,
 } from "@/lib/api";
+import {
+  enqueuePendingEvidence,
+  flushOfflineEvidence,
+  listPendingEvidence,
+  subscribeOfflineEvidence,
+  type PendingEvidence,
+} from "@/lib/offline-evidence";
 import { cn, formatCurrency } from "@/lib/utils";
 import { Chip } from "@/components/marketplace/primitives";
 
@@ -60,6 +67,21 @@ async function sha256Hex(file: File): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function captureLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  if (!("geolocation" in navigator)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) =>
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8_000, maximumAge: 120_000 },
+    );
+  });
+}
+
 function TaskExecution() {
   const { jobId } = Route.useParams();
   const [job, setJob] = useState<WorkerJobDetail | null>(null);
@@ -67,13 +89,28 @@ function TaskExecution() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAdvancing, setIsAdvancing] = useState(false);
   const [uploadingSubtaskId, setUploadingSubtaskId] = useState<string | null>(null);
+  const [queued, setQueued] = useState<PendingEvidence[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadJob = useCallback(async () => {
     setIsLoading(true);
     try {
-      setJob(await api.workerJob(jobId));
+      const [loadedJob, evidenceResult] = await Promise.all([
+        api.workerJob(jobId),
+        api.workerEvidence(jobId).catch(() => null),
+      ]);
+      setJob(loadedJob);
+      if (evidenceResult) {
+        const seeded: Record<string, EvidenceSummary> = {};
+        for (const item of evidenceResult.evidence) {
+          if (item.status === "UPLOADED" || item.status === "VERIFIED") {
+            seeded[item.subtask_id] = item;
+          }
+        }
+        setEvidenceBySubtask(seeded);
+      }
       setError(null);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -86,12 +123,46 @@ function TaskExecution() {
     void loadJob();
   }, [loadJob]);
 
+  useEffect(() => {
+    const mounted = true;
+    let lastCount = 0;
+    const refreshQueued = () => {
+      void listPendingEvidence(jobId).then((entries) => {
+        if (!mounted) return;
+        const nextCount = entries.length;
+        if (lastCount > 0 && nextCount < lastCount) void loadJob();
+        lastCount = nextCount;
+        setQueued(entries);
+      });
+    };
+    refreshQueued();
+    return subscribeOfflineEvidence(refreshQueued);
+  }, [jobId, loadJob]);
+
+  const handleRetrySync = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const result = await flushOfflineEvidence({ force: true });
+      if (result.remaining > 0) {
+        toast.warning(
+          "Storage is still unreachable — remaining files will keep retrying automatically.",
+        );
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
   const requiredSubtasks = useMemo(
-    () => job?.subtasks.filter((subtask) => subtask.is_required) ?? [],
+    () =>
+      job?.subtasks.filter((subtask) => subtask.is_required && subtask.status !== "SKIPPED") ?? [],
     [job],
   );
   const completedEvidenceCount = requiredSubtasks.filter(
-    (subtask) => evidenceBySubtask[subtask.id]?.status === "UPLOADED",
+    (subtask) =>
+      evidenceBySubtask[subtask.id]?.status === "UPLOADED" ||
+      evidenceBySubtask[subtask.id]?.status === "VERIFIED" ||
+      subtask.status === "COMPLETED",
   ).length;
   const readyToSubmit =
     job?.status === "IN_PROGRESS" && completedEvidenceCount === requiredSubtasks.length;
@@ -101,8 +172,8 @@ function TaskExecution() {
     if (!nextStatus) return;
     setIsAdvancing(true);
     try {
-      const updated = await api.advanceWorkStatus(jobId, nextStatus);
-      setJob((current) => (current ? { ...current, status: updated.status } : current));
+      await api.advanceWorkStatus(jobId, nextStatus);
+      setJob((current) => (current ? { ...current, status: nextStatus } : current));
       toast.success(`Work status updated to ${nextStatus.replaceAll("_", " ")}.`);
     } catch (requestError) {
       const message = errorMessage(requestError);
@@ -128,9 +199,18 @@ function TaskExecution() {
         toast.error(message);
         return;
       }
+      if (file.type === "image/heic" || file.type === "image/heif") {
+        const message =
+          "HEIC photos from iPhone aren't accepted. Change your camera to JPEG in Settings > Camera > Formats > Most Compatible, or convert the photo to JPG/PNG before uploading.";
+        setError(message);
+        toast.error(message);
+        return;
+      }
 
       setUploadingSubtaskId(subtaskId);
+      let reservationReceived = false;
       try {
+        const location = await captureLocation();
         const reservation = await api.reserveEvidenceUpload({
           jobId,
           subtaskId,
@@ -140,16 +220,38 @@ function TaskExecution() {
           capturedAt: new Date().toISOString(),
           checksumSha256: await sha256Hex(file),
           idempotencyKey: crypto.randomUUID(),
+          ...(location ? { location } : {}),
         });
+        reservationReceived = true;
         if (reservation.upload) await api.uploadEvidenceToStorage(reservation.upload, file);
         const confirmed = await api.confirmEvidence(reservation.evidence.id);
         setEvidenceBySubtask((current) => ({ ...current, [subtaskId]: confirmed }));
         setError(null);
         toast.success("Evidence uploaded, version-pinned, and confirmed.");
       } catch (requestError) {
-        const message = errorMessage(requestError);
-        setError(message);
-        toast.error(message);
+        if (reservationReceived) {
+          const location = await captureLocation();
+          await enqueuePendingEvidence({
+            file,
+            fileName: file.name,
+            mimeType: file.type,
+            mediaType,
+            fileSizeBytes: file.size,
+            jobId,
+            subtaskId,
+            capturedAt: new Date().toISOString(),
+            checksumSha256: await sha256Hex(file),
+            idempotencyKey: crypto.randomUUID(),
+            ...(location ? { location } : {}),
+          });
+          setError(null);
+          toast.info("Saved offline — it will upload automatically when the connection recovers.");
+          void flushOfflineEvidence();
+        } else {
+          const message = errorMessage(requestError);
+          setError(message);
+          toast.error(message);
+        }
       } finally {
         setUploadingSubtaskId(null);
       }
@@ -160,8 +262,8 @@ function TaskExecution() {
   const submitWork = useCallback(async () => {
     setIsSubmitting(true);
     try {
-      const submitted = await api.submitWork(jobId);
-      setJob((current) => (current ? { ...current, status: submitted.status } : current));
+      await api.submitWork(jobId);
+      setJob((current) => (current ? { ...current, status: "SUBMITTED" } : current));
       setError(null);
       toast.success("Evidence submitted for client review and escrow release.");
     } catch (requestError) {
@@ -247,6 +349,31 @@ function TaskExecution() {
         </p>
       ) : null}
 
+      {queued.length > 0 ? (
+        <section className="mt-4 rounded-2xl border border-amber-300/60 bg-amber-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-900">
+                {queued.length} file{queued.length === 1 ? "" : "s"} saved offline
+              </p>
+              <p className="mt-1 text-xs text-amber-800/80">
+                Saved on this device because storage was unreachable. They upload automatically
+                while NetworkPeers is open — refresh with a connection to confirm.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleRetrySync()}
+              disabled={isSyncing}
+              className="press inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-amber-400/60 bg-white px-3 text-xs font-semibold text-amber-900 disabled:opacity-70"
+            >
+              {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {isSyncing ? "Syncing" : "Retry now"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       <section className="mt-4 rounded-2xl border border-border bg-card p-4 shadow-soft">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
           <div>
@@ -304,14 +431,24 @@ function TaskExecution() {
           <ul className="mt-4 space-y-3">
             {job.subtasks.map((subtask, index) => {
               const evidence = evidenceBySubtask[subtask.id];
-              const confirmed = evidence?.status === "UPLOADED";
+              const confirmed =
+                evidence?.status === "UPLOADED" ||
+                evidence?.status === "VERIFIED" ||
+                subtask.status === "COMPLETED";
+              const skipped = subtask.status === "SKIPPED";
               const uploading = uploadingSubtaskId === subtask.id;
               return (
                 <li
                   key={subtask.id}
                   className={cn(
                     "rounded-xl border p-3",
-                    confirmed ? "border-success/50 bg-success/10" : "border-border bg-muted/40",
+                    confirmed
+                      ? "border-success/50 bg-success/10"
+                      : skipped
+                        ? "border-warning/20 bg-warning/10"
+                        : subtask.is_required && !confirmed
+                          ? "border-primary/20 bg-card"
+                          : "border-border bg-muted/40",
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -325,38 +462,40 @@ function TaskExecution() {
                     </div>
                     {confirmed ? <CheckCircle2 className="h-5 w-5 shrink-0 text-success" /> : null}
                   </div>
-                  {subtask.is_required ? (
-                    <label
-                      className={cn(
-                        "press mt-3 flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border text-sm font-semibold",
-                        job.status === "IN_PROGRESS"
-                          ? "border-primary/40 bg-card text-primary"
-                          : "cursor-not-allowed border-border text-muted-foreground",
-                      )}
-                    >
-                      {uploading ? (
+                  {skipped ? (
+                    <Chip tone="warning">Skipped by client checklist</Chip>
+                  ) : subtask.is_required ? (
+                    queued.some((entry) => entry.subtaskId === subtask.id) && !confirmed ? (
+                      <div className="mt-3 flex h-10 items-center justify-center gap-2 rounded-xl border border-amber-300/60 bg-amber-50 px-3 text-sm font-semibold text-amber-900">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Camera className="h-4 w-4" />
-                      )}
-                      {confirmed
-                        ? "Evidence confirmed"
-                        : uploading
-                          ? "Uploading evidence"
-                          : "Capture or select evidence"}
-                      <input
-                        type="file"
-                        className="sr-only"
-                        accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/wav,audio/webm,application/pdf"
-                        capture="environment"
-                        disabled={job.status !== "IN_PROGRESS" || uploading || confirmed}
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          event.currentTarget.value = "";
-                          if (file) void uploadEvidence(subtask.id, file);
-                        }}
-                      />
-                    </label>
+                        Saved offline — uploading automatically
+                      </div>
+                    ) : (
+                      <label className="press flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/40 bg-card text-primary cursor-pointer">
+                        {uploading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Camera className="h-4 w-4" />
+                        )}
+                        {confirmed
+                          ? "Evidence confirmed"
+                          : uploading
+                            ? "Uploading evidence"
+                            : "Capture or select evidence"}
+                        <input
+                          type="file"
+                          className="sr-only"
+                          accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/wav,audio/webm,application/pdf"
+                          capture="environment"
+                          disabled={job.status !== "IN_PROGRESS" || uploading || confirmed}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.currentTarget.value = "";
+                            if (file) void uploadEvidence(subtask.id, file);
+                          }}
+                        />
+                      </label>
+                    )
                   ) : (
                     <Chip>Optional evidence</Chip>
                   )}
@@ -367,7 +506,7 @@ function TaskExecution() {
         )}
       </section>
 
-      <div className="glass sticky bottom-20 z-20 mt-4 rounded-2xl p-2">
+      <div className="glass sticky bottom-3 z-10 mt-4 rounded-2xl p-2">
         <button
           type="button"
           disabled={!readyToSubmit || isSubmitting}

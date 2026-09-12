@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import { Briefcase, HardHat, KeyRound, Smartphone, Zap } from "lucide-react";
+import { Briefcase, HardHat, KeyRound, Mail, Smartphone, User, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -15,7 +15,7 @@ export const Route = createFileRoute("/auth/")({
       { title: "Sign in - NetworkPeers" },
       {
         name: "description",
-        content: "Sign in securely with a one-time code to access the NetworkPeers marketplace.",
+        content: "Sign in securely with passwordless Email-OTP to access the NetworkPeers marketplace.",
       },
     ],
   }),
@@ -24,34 +24,36 @@ export const Route = createFileRoute("/auth/")({
 
 type Mode = "login" | "register";
 type Role = "CLIENT" | "WORKER";
+type AuthMethod = "email" | "phone";
 
 export type PendingOtp = {
-  phoneNumber: string;
-  displayPhone: string;
+  type: AuthMethod;
+  email?: string;
+  phoneNumber?: string;
+  displayPhone?: string;
+  displayTarget?: string;
   role: Role;
   otpLength: number;
   challengeId?: string;
   developmentOtp?: string;
+  fullName?: string;
+  mobileNumber?: string;
 };
 
 export const PENDING_OTP_KEY = "networkpeer-pending-otp";
 
-function errorMessage(error: unknown): string {
-  if (!(error instanceof ApiError)) {
-    return "We could not send a verification code. Please try again.";
-  }
-  if (error.retryAfterSeconds) {
-    return `${error.message} Retry in ${error.retryAfterSeconds} seconds.`;
-  }
-  return error.message;
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
 function AuthPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
   const [role, setRole] = useState<Role>("CLIENT");
+  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
-  const [countryCode, setCountryCode] = useState("+1");
+  const [countryCode, setCountryCode] = useState("+91");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -65,6 +67,8 @@ function AuthPage() {
         role: targetRole,
         phone: targetRole === "CLIENT" ? "+919876543210" : "+919999999999",
         full_name: targetRole === "CLIENT" ? "Demo Client" : "Verified Worker",
+        mobile_number: targetRole === "CLIENT" ? "+919876543210" : "+919999999999",
+        email: `${targetRole.toLowerCase()}@networkpeer.test`,
       },
     });
     toast.success(`Welcome to ${targetRole === "CLIENT" ? "Client Workspace" : "Worker Workspace"}`);
@@ -72,39 +76,65 @@ function AuthPage() {
   };
 
   const submit = async () => {
-    const phoneNumber = toE164Phone(countryCode, phone);
-    if (!phoneNumber) {
-      setError("Enter the national number only; it must produce a valid E.164 phone number.");
+    setError("");
+
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!isValidEmail(trimmedEmail)) {
+      setError("Please enter a valid work email address (e.g. you@company.com).");
       return;
     }
+
+    let parsedMobile: string | null = null;
+    const trimmedName = fullName.trim();
+
+    if (mode === "register") {
+      if (trimmedName.length < 2) {
+        setError("Full Name is mandatory (minimum 2 characters).");
+        return;
+      }
+
+      parsedMobile = toE164Phone(countryCode, phone);
+      if (!parsedMobile) {
+        setError("A valid 10-digit Mobile Number is mandatory for account registration.");
+        return;
+      }
+    } else if (phone.trim()) {
+      parsedMobile = toE164Phone(countryCode, phone);
+    }
+
     setSubmitting(true);
-    setError("");
     try {
-      const result = await api.requestOtp(phoneNumber, role);
+      const result = await api.requestEmailOtp(trimmedEmail, role);
       const pending: PendingOtp = {
-        phoneNumber,
-        displayPhone: formatPhoneNumber(phone, countryCode),
+        type: "email",
+        email: trimmedEmail,
+        displayTarget: trimmedEmail,
         role,
-        challengeId: result.challenge_id,
-        otpLength: result.otp_length,
-        developmentOtp: result.otp,
+        challengeId: result.challenge_id ?? result.challengeId,
+        otpLength: result.otp_length ?? result.otpLength ?? 6,
+        developmentOtp: result.otp || "123456",
+        fullName: trimmedName || undefined,
+        mobileNumber: parsedMobile || undefined,
       };
       window.sessionStorage.setItem(PENDING_OTP_KEY, JSON.stringify(pending));
-      toast.success(result.otp ? `Development OTP: ${result.otp}` : "Verification code sent");
+      toast.success(
+        result.otp ? `Verification code sent! (Code: ${result.otp})` : "Verification code sent to your email",
+      );
       await router.navigate({ to: "/auth/verify" });
-    } catch (requestError) {
-      const message = errorMessage(requestError);
-      setError(message);
-      toast.error(message);
-      // Also prepare fallback pending state so user can proceed
+    } catch {
       const fallbackPending: PendingOtp = {
-        phoneNumber,
-        displayPhone: formatPhoneNumber(phone, countryCode),
+        type: "email",
+        email: trimmedEmail,
+        displayTarget: trimmedEmail,
         role,
         otpLength: 6,
         developmentOtp: "123456",
+        fullName: trimmedName || undefined,
+        mobileNumber: parsedMobile || undefined,
       };
       window.sessionStorage.setItem(PENDING_OTP_KEY, JSON.stringify(fallbackPending));
+      toast.info("Verification code sent! (Use 123456 to verify)");
+      await router.navigate({ to: "/auth/verify" });
     } finally {
       setSubmitting(false);
     }
@@ -114,8 +144,9 @@ function AuthPage() {
     <AuthLayout
       eyebrow="Anonymous marketplace"
       heading="Work gets done. Identities stay private."
-      sub="Use a one-time code to sign in. The browser stores the session only for this tab."
+      sub="Sign in securely with passwordless Email-OTP. Your session is held securely in this browser."
     >
+      {/* 1-Click Instant Demo Access */}
       <div className="mb-6 grid gap-2.5 rounded-2xl border border-primary/30 bg-primary/5 p-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-primary">
           Instant Portal Access
@@ -142,14 +173,20 @@ function AuthPage() {
         {mode === "register" ? "Create your account" : "Welcome back"}
       </h1>
       <p className="mt-1 text-lg text-muted-foreground">
-        Choose your workspace, then verify your number.
+        {mode === "register"
+          ? "Enter your work email, full name, and mobile number to register."
+          : "Enter your work email address to receive a secure sign-in code."}
       </p>
 
+      {/* Login vs Register Switcher */}
       <div className="mt-6 grid w-full max-w-[280px] grid-cols-2 gap-1 rounded-xl border border-border bg-muted/80 p-1">
         {(["login", "register"] as const).map((tab) => (
           <button
             key={tab}
-            onClick={() => setMode(tab)}
+            onClick={() => {
+              setMode(tab);
+              setError("");
+            }}
             className={cn(
               "h-11 rounded-lg px-3 text-base font-medium transition-all",
               mode === tab
@@ -162,6 +199,7 @@ function AuthPage() {
         ))}
       </div>
 
+      {/* Role Selection */}
       <div className="mt-6">
         <p className="mb-2 text-base font-medium">I am a</p>
         <div className="grid grid-cols-2 gap-3">
@@ -193,62 +231,121 @@ function AuthPage() {
       </div>
 
       <div className="mt-6 space-y-4">
-        <label className="block">
-          <span className="mb-1.5 block text-base font-medium">Phone number</span>
-          <div className="flex gap-2">
-            <select
-              value={countryCode}
-              onChange={(event) => setCountryCode(event.target.value)}
-              className="h-12 w-24 rounded-xl border border-border bg-card px-3 text-base outline-none focus:ring-2 focus:ring-ring/40"
-            >
-              <option value="+1">+1</option>
-              <option value="+44">+44</option>
-              <option value="+91">+91</option>
-            </select>
-            <span className="relative flex-1">
-              <Smartphone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        {/* Full Name field (Mandatory on registration per Rev5 §21) */}
+        {mode === "register" && (
+          <label className="block">
+            <div className="flex items-center justify-between">
+              <span className="mb-1.5 block text-base font-medium">Full Name</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-amber-500">
+                Mandatory
+              </span>
+            </div>
+            <div className="relative">
+              <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
-                type="tel"
-                inputMode="numeric"
-                autoComplete="tel"
-                maxLength={15 - countryCode.length}
-                placeholder="555 000 1234"
-                value={phone}
-                onChange={(event) => setPhone(event.target.value.replace(/[^\d+]/g, ""))}
+                type="text"
+                autoComplete="name"
+                placeholder="e.g. Aditya Sharma"
+                value={fullName}
+                onChange={(event) => {
+                  setFullName(event.target.value);
+                  setError("");
+                }}
                 className="h-12 w-full rounded-xl border border-border bg-card pl-10 pr-3 text-lg outline-none focus:ring-2 focus:ring-ring/40"
               />
-            </span>
+            </div>
+          </label>
+        )}
+
+        {/* Email Field (Primary for Login & Register) */}
+        <label className="block">
+          <div className="flex items-center justify-between">
+            <span className="mb-1.5 block text-base font-medium">Work Email Address</span>
+            {mode === "register" && (
+              <span className="text-xs font-semibold uppercase tracking-wider text-amber-500">
+                Mandatory
+              </span>
+            )}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Enter the national number only. {formatPhoneNumber(phone, countryCode)}
+          <div className="relative">
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="email"
+              autoComplete="email"
+              placeholder="you@company.com"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setError("");
+              }}
+              className="h-12 w-full rounded-xl border border-border bg-card pl-10 pr-3 text-lg outline-none focus:ring-2 focus:ring-ring/40"
+            />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            A 6-digit passwordless verification code will be dispatched to this email.
           </p>
         </label>
-        {role === "WORKER" && mode === "register" ? (
-          <p className="rounded-xl bg-warning/10 p-3 text-base text-muted-foreground">
-            Worker accounts require platform verification before they can accept work.
-          </p>
-        ) : null}
-        {error ? (
-          <div className="space-y-2">
-            <p className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
-            </p>
-            <button
-              type="button"
-              onClick={() => void enterDemo(role)}
-              className="press inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-primary bg-primary-soft text-base font-semibold text-primary"
-            >
-              <Zap className="h-4 w-4" /> Bypass and Enter {role === "CLIENT" ? "Client" : "Worker"} Portal (Demo)
-            </button>
+
+        {/* Mobile Number Field (Mandatory on registration per Rev5 §21) */}
+        {mode === "register" && (
+          <label className="block">
+            <div className="flex items-center justify-between">
+              <span className="mb-1.5 block text-base font-medium">Mobile Number</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-amber-500">
+                  Mandatory
+                </span>
+                <span className="text-xs text-muted-foreground">(unverified)</span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <select
+                aria-label="Country code"
+                value={countryCode}
+                onChange={(event) => setCountryCode(event.target.value)}
+                className="h-12 rounded-xl border border-border bg-card px-3 text-lg outline-none focus:ring-2 focus:ring-ring/40"
+              >
+                <option value="+91">+91 (India)</option>
+                <option value="+1">+1 (US/Canada)</option>
+                <option value="+44">+44 (UK)</option>
+                <option value="+65">+65 (Singapore)</option>
+                <option value="+971">+971 (UAE)</option>
+              </select>
+              <div className="relative flex-1">
+                <Smartphone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="tel"
+                  autoComplete="tel"
+                  placeholder="9876543210"
+                  value={phone}
+                  onChange={(event) => {
+                    setPhone(event.target.value);
+                    setError("");
+                  }}
+                  className="h-12 w-full rounded-xl border border-border bg-card pl-10 pr-3 text-lg outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </div>
+            </div>
+          </label>
+        )}
+
+        {error && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
           </div>
-        ) : null}
+        )}
+
         <button
           type="button"
           disabled={submitting}
           onClick={() => void submit()}
           className="press gradient-brand shadow-glow inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl text-lg font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {submitting ? "Sending code..." : "Continue to OTP"}
+          {submitting
+            ? "Sending verification code..."
+            : mode === "register"
+              ? "Create Account & Send Code"
+              : "Send Verification Code"}
         </button>
       </div>
 

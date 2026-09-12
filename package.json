@@ -9,11 +9,16 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "NITRO_PRESET=vercel npm run build --workspace networkpeer-platform",
+    "build": "NITRO_PRESET=vercel npm run build --workspace networkpeer-web",
     "build:contracts": "npm run build --workspace @networkpeer/contracts",
-    "build:web": "npm run build --workspace networkpeer-platform",
+    "build:web": "NITRO_PRESET=vercel npm run build --workspace networkpeer-web",
     "build:apps:web": "NITRO_PRESET=vercel npm run build --workspace networkpeer-web",
-    "lint:web": "npm run lint --workspace networkpeer-platform"
+    "build:platform": "NITRO_PRESET=vercel npm run build --workspace networkpeer-platform",
+    "build:android": "cd apps/android && ./gradlew assembleDevelopmentDebug",
+    "lint:web": "npm run lint --workspace networkpeer-web",
+    "typecheck:web": "npm run typecheck --workspace networkpeer-web",
+    "check:model-leak": "./scripts/check-model-leak.sh",
+    "check:all": "npm run build:contracts && npm run typecheck:web && npm run build && ./scripts/check-model-leak.sh"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

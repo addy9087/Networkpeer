@@ -71,24 +71,14 @@ export function RealtimeSyncBridge() {
       });
       socket.on("sync:event", (event: SyncEvent) => {
         applyEvent(event, true);
-        // Live delivery is an optimization; REST sync advances the durable checkpoint in order.
         void reconcile().catch(() => undefined);
       });
-      socket.on("connect_error", (err: unknown) => {
-        console.warn("Realtime socket connection error (non-fatal):", err);
-      });
-    } catch (socketInitErr) {
-      console.warn("Failed to initialize realtime socket (non-fatal):", socketInitErr);
+    } catch (err) {
+      console.warn("RealtimeSyncBridge initialization bypassed:", err);
     }
     return () => {
       cancelled = true;
-      if (socket) {
-        try {
-          socket.disconnect();
-        } catch {
-          // ignore cleanup errors
-        }
-      }
+      if (socket) socket.disconnect();
     };
   }, [queryClient, session]);
 

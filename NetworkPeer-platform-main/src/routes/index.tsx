@@ -14,8 +14,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { UserNavMenu } from "@/components/shell/user-nav-menu";
-import { authSession } from "@/lib/auth-session";
 import { AnonymousBadge, Chip, MapCanvas } from "@/components/marketplace/primitives";
 
 export const Route = createFileRoute("/")({
@@ -193,29 +191,23 @@ function Landing() {
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            {authSession.get() ? (
-              <UserNavMenu />
-            ) : (
-              <>
-                <Link
-                  to="/auth"
-                  className="press hidden rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium sm:inline-flex"
-                >
-                  Sign in
-                </Link>
-                <Link
-                  to="/auth"
-                  className="press gradient-brand animate-gradient-pan shadow-glow inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold text-primary-foreground"
-                >
-                  Get started <ArrowRight className="h-4 w-4" />
-                </Link>
-              </>
-            )}
+            <Link
+              to="/auth"
+              className="press hidden rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium sm:inline-flex"
+            >
+              Sign in
+            </Link>
+            <Link
+              to="/auth"
+              className="press gradient-brand animate-gradient-pan shadow-glow inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold text-primary-foreground"
+            >
+              Get started <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
       </header>
 
-      <section className="relative overflow-hidden bg-grid-futuristic">
+      <section className="relative overflow-hidden">
         <div className="surface-grid absolute inset-0 opacity-40" aria-hidden />
         <div className="absolute inset-0 bg-[var(--gradient-surface)]" aria-hidden />
         {/* Animated gradient blobs for a living, 3D-feeling backdrop */}
@@ -361,10 +353,12 @@ function Landing() {
         </div>
       </section>
 
-      <footer className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-10 text-sm text-muted-foreground sm:px-6">
+      <footer className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-10 text-sm text-muted-foreground sm:px-6">
         <p>© 2026 NetworkPeers. Anonymous until accepted.</p>
+        <Link to="/auth/admin" className="hover:text-foreground">
+          Admin access
+        </Link>
       </footer>
-
     </div>
   );
 }

@@ -1,31 +1,25 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeCheck,
-  Lock,
-  Mail,
-  Phone,
-  User,
-  ShieldCheck,
-  Save,
-  ArrowLeft,
+  CheckCircle2,
   Edit3,
   Loader2,
-  CheckCircle2,
+  Lock,
+  LogOut,
+  Mail,
+  Phone,
+  Save,
+  ShieldCheck,
+  User,
 } from "lucide-react";
-import { useState, useEffect } from "react";
-import { z } from "zod";
+import { useState, useEffect, useCallback } from "react";
 
 import { PageHeader } from "@/components/shell/portal-shell";
 import { Chip, SectionCard } from "@/components/marketplace/primitives";
-import { api, type UserProfile } from "@/lib/api";
-
-const profileSearchSchema = z.object({
-  edit: z.string().optional(),
-});
+import { api } from "@/lib/api";
+import { useAuthSession, authSession } from "@/lib/auth-session";
 
 export const Route = createFileRoute("/client/profile")({
-  validateSearch: (search) => profileSearchSchema.parse(search),
   head: () => ({
     meta: [
       { title: "Client Profile — NetworkPeers" },
@@ -35,277 +29,267 @@ export const Route = createFileRoute("/client/profile")({
   component: ClientProfilePage,
 });
 
-function ClientProfilePage() {
-  const search = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
-  const queryClient = useQueryClient();
+type ClientProfileData = {
+  id: string;
+  phoneNumber: string;
+  fullName: string;
+  email: string | null;
+  role: string;
+  isVerified: boolean;
+};
 
-  const isEditMode = search.edit === "true";
+export function ClientProfilePage() {
+  const navigate = useNavigate();
+  const session = useAuthSession();
 
-  const { data: profile, isLoading } = useQuery<UserProfile>({
-    queryKey: ["user-profile"],
-    queryFn: () => api.getProfile(),
+  const fallbackUser = session?.user;
+
+  const [profile, setProfile] = useState<ClientProfileData>({
+    id: fallbackUser?.id || "anonymous-client",
+    phoneNumber: fallbackUser?.phone || "Phone hidden in escrow",
+    fullName: fallbackUser?.full_name || "Verified Client",
+    email: null,
+    role: "CLIENT",
+    isVerified: true,
   });
 
-  const [email, setEmail] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const loadProfile = useCallback(async () => {
+    if (!fallbackUser) return;
+    setIsLoading(true);
+    try {
+      const res = await api.getProfile().catch(() => null);
+      if (res) {
+        setProfile({
+          id: res.id || fallbackUser.id,
+          phoneNumber: res.phoneNumber || res.phone_number || fallbackUser.phone || "",
+          fullName: res.fullName || res.full_name || fallbackUser.full_name || "Verified Client",
+          email: res.email || null,
+          role: res.role || "CLIENT",
+          isVerified: true,
+        });
+        if (res.email) setEmailInput(res.email);
+      }
+    } catch {
+      // Retain fallback session data
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fallbackUser]);
 
   useEffect(() => {
-    if (profile) {
-      setEmail(profile.email || "");
-    }
-  }, [profile]);
+    void loadProfile();
+  }, [loadProfile]);
 
-  const updateMutation = useMutation({
-    mutationFn: (newEmail: string) => api.updateProfile({ email: newEmail.trim() || null }),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(["user-profile"], updated);
-      setSuccessMsg("Profile updated successfully!");
-      setErrorMsg("");
-      setTimeout(() => {
-        setSuccessMsg("");
-        navigate({ search: {} });
-      }, 1200);
-    },
-    onError: (err: any) => {
-      setErrorMsg(err?.message || "Failed to update profile");
-      setSuccessMsg("");
-    },
-  });
-
-  const handleSave = (e: React.FormEvent) => {
+  const handleSaveEmail = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateMutation.mutate(email);
+    setIsSaving(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+    try {
+      await api.updateProfile({ email: emailInput.trim() || null });
+      setProfile((prev) => ({ ...prev, email: emailInput.trim() || null }));
+      setSuccessMsg("Email updated successfully!");
+      setIsEditing(false);
+      setTimeout(() => setSuccessMsg(""), 2500);
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Failed to update email. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await api.logout();
+    } catch {
+      authSession.clear();
+    } finally {
+      setIsLoggingOut(false);
+      await navigate({ to: "/" });
+    }
+  };
 
   return (
     <div className="animate-rise space-y-6 max-w-3xl">
       <PageHeader
-        title={isEditMode ? "Edit Profile" : "Client Profile"}
+        title={isEditing ? "Edit Profile" : "Client Profile"}
         description={
-          isEditMode
-            ? "Update your profile details. Verified identity credentials remain locked."
-            : "Your verified client identity and credentials."
+          isEditing
+            ? "Update your contact email. Verified identity phone and name remain cryptographically locked."
+            : "Your verified client identity and workspace credentials."
         }
         action={
-          isEditMode ? (
+          <div className="flex items-center gap-2">
+            {!isEditing ? (
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="press inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-sm font-semibold text-foreground hover:bg-muted"
+              >
+                <Edit3 className="h-4 w-4" /> Edit details
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditing(false);
+                  setEmailInput(profile.email || "");
+                }}
+                className="press inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => navigate({ search: {} })}
-              className="press inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted"
+              disabled={isLoggingOut}
+              onClick={handleLogout}
+              className="press inline-flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2 text-sm font-semibold text-destructive hover:bg-destructive/20"
             >
-              <ArrowLeft className="h-4 w-4" /> Back to View
+              {isLoggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+              Log out
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => navigate({ search: { edit: "true" } })}
-              className="press gradient-brand shadow-glow inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-primary-foreground"
-            >
-              <Edit3 className="h-4 w-4" /> Edit Profile
-            </button>
-          )
+          </div>
         }
       />
 
       {successMsg && (
-        <div className="flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 p-3.5 text-sm font-medium text-success">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
-          {successMsg}
+        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="h-5 w-5 shrink-0" />
+          <span>{successMsg}</span>
         </div>
       )}
 
       {errorMsg && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 text-sm font-medium text-destructive">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-medium text-destructive">
           {errorMsg}
         </div>
       )}
 
-      {/* Main Profile Summary Card */}
-      <SectionCard title="Client Identity" description="Verified account credentials">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-border bg-primary-soft text-primary font-bold text-2xl">
-            {profile?.fullName ? profile.fullName[0].toUpperCase() : "C"}
+      {/* Main Profile Card */}
+      <SectionCard title="Client Account Credentials">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pb-4 border-b border-border/60">
+          <div className="grid h-16 w-16 place-items-center rounded-2xl bg-primary/10 text-2xl font-bold text-primary">
+            {profile.fullName.charAt(0).toUpperCase()}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-bold text-foreground">
-                {profile?.fullName || "Client Account"}
-              </h2>
-              <Chip tone="success">
-                <BadgeCheck className="h-3.5 w-3.5" /> Verified Client
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-foreground truncate">{profile.fullName}</h2>
+              <Chip tone="success" className="gap-1">
+                <ShieldCheck className="h-3.5 w-3.5" /> Verified
               </Chip>
             </div>
-            <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-              <Phone className="h-3.5 w-3.5 text-primary" /> {profile?.phoneNumber || "—"}
-            </p>
-            <p className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
-              <Mail className="h-3.5 w-3.5 text-primary" /> {profile?.email || "No email added"}
+            <p className="text-sm text-muted-foreground">ID: {profile.id}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+              Client Employer Account
             </p>
           </div>
+        </div>
+
+        {/* Credentials Breakdown */}
+        <div className="grid gap-4 sm:grid-cols-2 pt-4">
+          <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground font-semibold">
+              <span className="flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5" /> Registered Phone
+              </span>
+              <Lock className="h-3 w-3 text-muted-foreground" />
+            </div>
+            <p className="text-base font-medium text-foreground">{profile.phoneNumber}</p>
+            <p className="text-xs text-muted-foreground">Locked: Verified via initial signup.</p>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground font-semibold">
+              <span className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5" /> Client Name / Org
+              </span>
+              <BadgeCheck className="h-3 w-3 text-primary" />
+            </div>
+            <p className="text-base font-medium text-foreground">{profile.fullName}</p>
+            <p className="text-xs text-muted-foreground">Display name for escrow release notes.</p>
+          </div>
+        </div>
+
+        {/* Contact Email Section */}
+        <div className="pt-2">
+          {isEditing ? (
+            <form onSubmit={handleSaveEmail} className="rounded-xl border border-primary/40 bg-primary-soft/10 p-4 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                  <Mail className="h-4 w-4 text-primary" /> Notification & Invoice Email
+                </label>
+                <input
+                  type="email"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  placeholder="client@organization.com"
+                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:ring-primary"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Where you receive escrow release alerts, worker evidence updates, and receipts.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="press rounded-xl px-4 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="press gradient-brand shadow-glow inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-primary-foreground"
+                >
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save Email
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4">
+              <div className="space-y-1">
+                <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5" /> Notification & Billing Email
+                </span>
+                <p className="text-base font-medium text-foreground">
+                  {profile.email || "No email configured (SMS/in-app only)"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="press text-xs font-semibold text-primary hover:underline"
+              >
+                Change
+              </button>
+            </div>
+          )}
         </div>
       </SectionCard>
 
-      {isEditMode ? (
-        <SectionCard
-          title="Edit Details"
-          description="Update permitted contact and account information"
-        >
-          {/* Security Notice for Locked Credentials */}
-          <div className="mb-6 rounded-xl border border-primary/20 bg-primary-soft/40 p-3.5 flex items-start gap-3">
-            <Lock className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-            <div className="text-xs leading-relaxed text-foreground">
-              <p className="font-semibold text-primary">Identity Protection Enforced</p>
-              <p className="text-muted-foreground mt-0.5">
-                Full Name and Phone Number are verified identity credentials tied to your SMS OTP
-                verification and cannot be modified. To change your registered name or phone number,
-                contact support.
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSave} className="space-y-4">
-            {/* Locked Full Name */}
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                Full Name (Verified Identity)
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={profile?.fullName || ""}
-                  disabled
-                  readOnly
-                  className="w-full rounded-xl border border-border bg-muted/60 px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed pr-10 font-medium select-none"
-                />
-                <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
-              </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Locked: Cannot be modified. Verified via KYC.
-              </p>
-            </div>
-
-            {/* Locked Phone Number */}
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                Phone Number (Verified Account Credential)
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={profile?.phoneNumber || ""}
-                  disabled
-                  readOnly
-                  className="w-full rounded-xl border border-border bg-muted/60 px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed pr-10 font-medium select-none"
-                />
-                <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
-              </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Locked: Verified primary authentication number.
-              </p>
-            </div>
-
-            {/* Editable Email */}
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-xs font-semibold text-foreground uppercase tracking-wider mb-1"
-              >
-                Email Address (Editable)
-              </label>
-              <div className="relative">
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your contact email"
-                  className="w-full rounded-xl border border-border bg-card px-3.5 py-2.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
-                />
-                <Mail className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Used for job notifications, receipt delivery, and milestone alerts.
-              </p>
-            </div>
-
-            {/* Form Actions */}
-            <div className="pt-4 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => navigate({ search: {} })}
-                className="press rounded-xl border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={updateMutation.isPending}
-                className="press gradient-brand shadow-glow inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
-              >
-                {updateMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                Save Changes
-              </button>
-            </div>
-          </form>
-        </SectionCard>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SectionCard title="Security & Trust" description="Authentication details">
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center justify-between py-1 border-b border-border/60">
-                <span className="text-muted-foreground">Two-Factor SMS</span>
-                <span className="font-semibold text-success flex items-center gap-1">
-                  <ShieldCheck className="h-4 w-4" /> Active
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-border/60">
-                <span className="text-muted-foreground">Verification Tier</span>
-                <span className="font-semibold text-foreground">Tier 1 Verified</span>
-              </div>
-              <div className="flex items-center justify-between py-1">
-                <span className="text-muted-foreground">Account Status</span>
-                <span className="font-semibold text-success">Good Standing</span>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Quick Actions" description="Account navigation">
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => navigate({ search: { edit: "true" } })}
-                className="press flex w-full items-center justify-between rounded-xl border border-border bg-card p-3 text-sm font-medium text-foreground hover:bg-muted"
-              >
-                <span className="flex items-center gap-2">
-                  <Edit3 className="h-4 w-4 text-primary" /> Edit Contact Details
-                </span>
-              </button>
-              <a
-                href="/client/wallet"
-                className="press flex w-full items-center justify-between rounded-xl border border-border bg-card p-3 text-sm font-medium text-foreground hover:bg-muted"
-              >
-                <span className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-primary" /> View Escrow & Wallet
-                </span>
-              </a>
-            </div>
-          </SectionCard>
+      {/* Privacy Guarantee Card */}
+      <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary-soft/30 via-background to-card p-6 space-y-2">
+        <div className="flex items-center gap-2 text-primary font-semibold">
+          <ShieldCheck className="h-5 w-5" />
+          <span>Zero Identity Leak Guarantee</span>
         </div>
-      )}
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          NetworkPeers protects both client and worker identities. Workers only see verified task locations and escrow milestones. Direct phone numbers and credentials are never exposed publicly.
+        </p>
+      </div>
     </div>
   );
 }

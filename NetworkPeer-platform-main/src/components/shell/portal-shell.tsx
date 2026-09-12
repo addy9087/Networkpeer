@@ -72,6 +72,9 @@ export function PortalShell({
             <Link
               key={item.to}
               to={item.to}
+              activeOptions={{ exact: isExactRoot }}
+              activeProps={{ className: "" }}
+              inactiveProps={{ className: "" }}
               onClick={() => setOpen(false)}
               className={cn(
                 "group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2.75 text-base font-medium transition-all",

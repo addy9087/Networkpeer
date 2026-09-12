@@ -5,9 +5,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_CENTER: [number, number] = [12.9716, 77.5946]; // Bengaluru
-const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const TILE_ATTR =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 type LeafletModule = typeof import("leaflet");
 type Marker = import("leaflet").Marker;
@@ -35,7 +35,6 @@ export function LocationPicker({
   const mapRef = useRef<Map | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const leafletRef = useRef<LeafletModule | null>(null);
-  const coordinatesRef = useRef({ lat, lng });
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
 
@@ -75,18 +74,13 @@ export function LocationPicker({
     void import("leaflet").then((L) => {
       if (disposed || !containerRef.current) return;
       leafletRef.current = L;
-      const currentCoordinates = coordinatesRef.current;
 
       const instance = L.map(containerRef.current, {
-        center:
-          currentCoordinates.lat !== null && currentCoordinates.lng !== null
-            ? [currentCoordinates.lat, currentCoordinates.lng]
-            : DEFAULT_CENTER,
-        zoom: currentCoordinates.lat !== null && currentCoordinates.lng !== null ? 14 : 11,
+        center: lat !== null && lng !== null ? [lat, lng] : DEFAULT_CENTER,
+        zoom: lat !== null && lng !== null ? 14 : 11,
         zoomControl: true,
       });
       map = instance;
-      mapRef.current = instance;
       L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(instance);
 
       instance.on("click", (event: { latlng: { lat: number; lng: number } }) => {
@@ -95,33 +89,16 @@ export function LocationPicker({
         onPickRef.current(nextLat, nextLng);
       });
 
-      if (currentCoordinates.lat !== null && currentCoordinates.lng !== null) {
-        syncMarker(L, instance, currentCoordinates.lat, currentCoordinates.lng);
+      if (lat !== null && lng !== null) {
+        syncMarker(L, instance, lat, lng);
       }
     });
 
     return () => {
       disposed = true;
       map?.remove();
-      mapRef.current = null;
       markerRef.current = null;
     };
-  }, [syncMarker]);
-
-  useEffect(() => {
-    coordinatesRef.current = { lat, lng };
-    const map = mapRef.current;
-    const L = leafletRef.current;
-    if (!map || !L) return;
-
-    if (lat === null || lng === null) {
-      markerRef.current?.remove();
-      markerRef.current = null;
-      map.flyTo(DEFAULT_CENTER, 11, { duration: 0.6 });
-      return;
-    }
-
-    syncMarker(L, map, lat, lng);
   }, [lat, lng, syncMarker]);
 
   const runSearch = useCallback(async () => {
@@ -234,7 +211,7 @@ export function LocationPicker({
 
       <div
         ref={containerRef}
-        className="h-72 w-full overflow-hidden rounded-2xl border border-border bg-muted/40 shadow-soft [&_.leaflet-tile]:invert [&_.leaflet-tile]:hue-rotate-180 [&_.leaflet-tile]:brightness-95 [&_.leaflet-tile]:contrast-90"
+        className="h-72 w-full overflow-hidden rounded-2xl border border-border bg-muted/40 shadow-soft"
         aria-label="Interactive map — tap to set the job location"
       />
 

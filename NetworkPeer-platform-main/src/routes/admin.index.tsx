@@ -1,169 +1,137 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   Briefcase,
   Building2,
+  CircleDollarSign,
   FileCheck2,
-  PlusCircle,
-  Sparkles,
-  TrendingUp,
+  ShieldCheck,
   Users,
-  Wallet,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/shell/portal-shell";
 import { Chip, SectionCard, StatCard } from "@/components/marketplace/primitives";
+import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
     meta: [
       { title: "Admin dashboard — NetworkPeers" },
-      {
-        name: "description",
-        content: "Operations overview with approvals, payments and fraud signals.",
-      },
+      { name: "description", content: "Operations overview with live marketplace metrics." },
     ],
   }),
   component: AdminDashboard,
 });
 
-const metrics = [
-  { label: "Total jobs", value: "214", delta: 12, icon: Briefcase, tone: "primary" as const },
-  { label: "Active jobs", value: "76", delta: 5, icon: FileCheck2, tone: "teal" as const },
-  { label: "Completed jobs", value: "132", delta: 9, icon: Building2, tone: "success" as const },
-  { label: "Clients", value: "86", delta: 4, icon: Users, tone: "primary" as const },
-  { label: "Workers", value: "128", delta: 6, icon: Wallet, tone: "teal" as const },
-  {
-    label: "Revenue",
-    value: formatCurrency(842000),
-    delta: 8,
-    icon: TrendingUp,
-    tone: "success" as const,
-  },
-  { label: "Pending reviews", value: "14", delta: -2, icon: Sparkles, tone: "warning" as const },
-  { label: "Banned users", value: "3", delta: 0, icon: Building2, tone: "warning" as const },
-];
+function cents(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed / 100 : 0;
+}
 
 function AdminDashboard() {
+  const analytics = useQuery({
+    queryKey: ["admin", "analytics"],
+    queryFn: api.adminAnalytics,
+  });
+  const users = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => api.adminUsers({ perPage: 100 }),
+  });
+
+  const activeJobs = analytics.data?.active_jobs ?? 0;
+  const escrowVolume = (analytics.data?.escrow_hold_volume ?? []).reduce(
+    (sum, entry) => sum + cents(entry.cents),
+    0,
+  );
+  const platformRevenue = (analytics.data?.platform_fee_revenue ?? []).reduce(
+    (sum, entry) => sum + cents(entry.cents),
+    0,
+  );
+  const totalUsers = users.data?.total ?? 0;
+  const activeUsers = users.data?.items.filter((user) => user.is_active).length ?? 0;
+
   return (
     <div className="animate-rise space-y-6">
       <PageHeader
         title="Operations overview"
-        description="Monitor live demand, fraud signals and payment health from one control centre."
+        description="Live marketplace health from the authoritative ledger and audit trail."
         action={
           <Link
             to="/admin/jobs"
             className="press gradient-brand shadow-glow inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-base font-semibold text-primary-foreground"
           >
-            <PlusCircle className="h-4 w-4" /> Review live jobs
+            <FileCheck2 className="h-4 w-4" /> Review jobs
           </Link>
         }
       />
 
-      <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory md:grid md:grid-cols-2 md:gap-4 md:overflow-visible xl:grid-cols-4">
-        {metrics.map((metric) => (
-          <div
-            key={metric.label}
-            className="min-w-[260px] max-w-[280px] flex-none snap-start md:min-w-0 md:max-w-none"
-          >
-            <StatCard
-              label={metric.label}
-              value={metric.value}
-              delta={metric.delta}
-              icon={metric.icon}
-              tone={metric.tone}
-              hint="this week"
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <SectionCard title="Revenue trend" description="Weekly jobs and revenue">
-          <div className="flex h-48 items-end gap-3 rounded-2xl border border-border bg-muted/40 p-4">
-            {[48, 64, 56, 78, 90, 84].map((height, index) => (
-              <div key={index} className="flex flex-1 flex-col items-center gap-2">
-                <div
-                  className="w-full rounded-t-2xl bg-gradient-to-t from-primary to-brand-teal"
-                  style={{ height: `${height}%` }}
-                />
-                <span className="text-[13px] text-muted-foreground">W{index + 1}</span>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Recent activity" description="Platform signals from the last 24 hours">
-          <ul className="space-y-3">
-            {[
-              {
-                title: "Evidence submitted",
-                detail: "GF-1041 · 6 media files captured",
-                time: "8 min ago",
-              },
-              {
-                title: "Worker accepted",
-                detail: "GF-1037 · Verified worker assigned",
-                time: "42 min ago",
-              },
-              { title: "Payout released", detail: "GF-1038 · ₹145 disbursed", time: "2 hrs ago" },
-            ].map((entry) => (
-              <li
-                key={entry.title}
-                className="flex items-start gap-3 rounded-2xl border border-border bg-card/80 p-3"
-              >
-                <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary-soft text-primary">
-                  <Sparkles className="h-4 w-4" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-base font-medium">{entry.title}</p>
-                  <p className="truncate text-sm text-muted-foreground">{entry.detail}</p>
-                  <p className="mt-1 text-[13px] text-muted-foreground">{entry.time}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Active jobs"
+          value={String(activeJobs)}
+          icon={Briefcase}
+          tone="primary"
+          hint="live across the platform"
+        />
+        <StatCard
+          label="Escrow held"
+          value={formatCurrency(escrowVolume)}
+          icon={CircleDollarSign}
+          tone="warning"
+          hint="completed holds"
+        />
+        <StatCard
+          label="Platform revenue"
+          value={formatCurrency(platformRevenue)}
+          icon={Building2}
+          tone="success"
+          hint="completed postings"
+        />
+        <StatCard
+          label="Active users"
+          value={`${activeUsers}/${totalUsers}`}
+          icon={Users}
+          tone="teal"
+          hint="active accounts"
+        />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <SectionCard title="Charts" description="Approval throughput and volume pressure">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-border bg-muted/40 p-4">
-              <p className="text-base font-semibold">Approval pace</p>
-              <div className="mt-3 flex h-28 items-end gap-2">
-                {[34, 44, 38, 54, 62, 70].map((height, index) => (
-                  <div
-                    key={index}
-                    className="flex-1 rounded-t-xl bg-gradient-to-t from-primary to-brand-teal"
-                    style={{ height: `${height}%` }}
-                  />
-                ))}
+        <SectionCard title="Financial basis" description="Ledger-derived, currency-safe aggregates">
+          <div className="space-y-3 text-base">
+            {(analytics.data?.escrow_hold_volume ?? []).map((entry) => (
+              <div
+                key={entry.currency}
+                className="flex items-center justify-between rounded-xl border border-border px-3 py-3"
+              >
+                <span className="text-muted-foreground">Escrow held ({entry.currency})</span>
+                <span className="font-semibold">{formatCurrency(cents(entry.cents))}</span>
               </div>
-            </div>
-            <div className="rounded-2xl border border-border bg-muted/40 p-4">
-              <p className="text-base font-semibold">Escalation load</p>
-              <div className="mt-3 flex h-28 items-end gap-2">
-                {[22, 28, 25, 33, 40, 36].map((height, index) => (
-                  <div
-                    key={index}
-                    className="flex-1 rounded-t-xl bg-gradient-to-t from-warning to-success"
-                    style={{ height: `${height}%` }}
-                  />
-                ))}
+            ))}
+            {(analytics.data?.platform_fee_revenue ?? []).map((entry) => (
+              <div
+                key={`fee-${entry.currency}`}
+                className="flex items-center justify-between rounded-xl border border-border px-3 py-3"
+              >
+                <span className="text-muted-foreground">Platform revenue ({entry.currency})</span>
+                <span className="font-semibold">{formatCurrency(cents(entry.cents))}</span>
               </div>
-            </div>
+            ))}
+            {!analytics.data?.escrow_hold_volume?.length &&
+              !analytics.data?.platform_fee_revenue?.length && (
+                <p className="text-muted-foreground">No completed ledger postings yet.</p>
+              )}
           </div>
         </SectionCard>
 
-        <SectionCard title="Quick actions" description="Push common workflows">
+        <SectionCard title="Quick actions">
           <div className="grid gap-3">
             {[
               { label: "Open job queue", to: "/admin/jobs" },
               { label: "Review worker quality", to: "/admin/workers" },
-              { label: "Inspect payouts", to: "/admin/payments" },
-              { label: "Check recent reviews", to: "/admin/reviews" },
+              { label: "Inspect payments", to: "/admin/payments" },
             ].map((item) => (
               <Link
                 key={item.label}
@@ -174,6 +142,11 @@ function AdminDashboard() {
                 <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
               </Link>
             ))}
+          </div>
+          <div className="mt-4">
+            <Chip tone="success">
+              <ShieldCheck className="h-3.5 w-3.5" /> Backend authoritative
+            </Chip>
           </div>
         </SectionCard>
       </div>

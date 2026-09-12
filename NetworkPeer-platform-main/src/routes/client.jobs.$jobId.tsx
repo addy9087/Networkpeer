@@ -207,15 +207,6 @@ function JobDetails() {
           </button>
         )}
         {job.status === "SUBMITTED" && (
-          <Link
-            to="/client/review/$jobId"
-            params={{ jobId }}
-            className="press inline-flex h-11 items-center gap-2 rounded-xl border border-primary/40 bg-primary-soft px-4 text-base font-semibold text-primary"
-          >
-            <CheckCircle2 className="h-4 w-4" /> Review evidence
-          </Link>
-        )}
-        {job.status === "SUBMITTED" && (
           <button
             type="button"
             onClick={() => void approveJob()}

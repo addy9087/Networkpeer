@@ -1,105 +1,88 @@
-import { Link } from "@tanstack/react-router";
-import { LayoutDashboard, LogOut, Settings, User } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { LogOut, User, Settings, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
 
-import { authSession } from "@/lib/auth-session";
-import { api, type UserProfile } from "@/lib/api";
+import { useAuthSession, authSession } from "@/lib/auth-session";
+import { api } from "@/lib/api";
 
-export function UserNavMenu({
-  identity,
-  className,
-}: {
-  identity?: "Client" | "Worker" | "Admin";
-  className?: string;
-}) {
+export function UserNavMenu({ identity }: { identity: "Client" | "Worker" | "Admin" }) {
   const [open, setOpen] = useState(false);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const session = authSession.get();
+  const session = useAuthSession();
+  const navigate = useNavigate();
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const user = session?.user;
+  const initial = user?.full_name?.charAt(0).toUpperCase() || (identity === "Client" ? "C" : identity === "Worker" ? "W" : "A");
+  const displayName = user?.full_name || (identity === "Client" ? "Client Workspace" : identity === "Worker" ? "Worker Portal" : "Admin Console");
 
   useEffect(() => {
-    if (session) {
-      api.getProfile().then(setProfile).catch(() => {});
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
     }
-  }, [session?.accessToken]);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
-  if (!session) return null;
-
-  const role = identity || (session.user.role === "WORKER" ? "Worker" : "Client");
-  const initial = profile?.fullName?.trim()?.[0]?.toUpperCase() || role[0];
-  const profilePath = role === "Worker" ? "/worker/profile" : "/client/profile";
-  const dashboardPath = role === "Worker" ? "/worker" : "/client";
-
-  const handleSignOut = async () => {
+  const handleLogout = async () => {
     try {
       await api.logout();
     } catch {
-      // ignore
+      authSession.clear();
+    } finally {
+      setOpen(false);
+      await navigate({ to: "/" });
     }
-    authSession.clear();
-    window.location.href = "/auth";
   };
 
+  const profileHref = identity === "Client" ? "/client/profile" : identity === "Worker" ? "/worker/profile" : "/admin/settings";
+
   return (
-    <div className={`relative ${className || ""}`}>
+    <div className="relative" ref={menuRef}>
       <button
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="press grid h-10 w-10 place-items-center rounded-full bg-primary-soft text-base font-semibold text-primary shadow-xs ring-2 ring-transparent transition-all hover:ring-primary/40 focus:outline-none focus:ring-primary cursor-pointer"
-        aria-label="User profile menu"
-        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="press flex items-center gap-2 rounded-xl border border-border bg-card p-1.5 hover:bg-muted text-sm"
       >
-        {initial}
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+          {initial}
+        </span>
+        <span className="hidden md:block max-w-[120px] truncate font-medium text-foreground text-xs">
+          {displayName}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground hidden sm:block" />
       </button>
 
       {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="animate-rise absolute right-0 top-12 z-50 w-56 rounded-2xl border border-border bg-card p-1.5 shadow-lift">
-            <div className="border-b border-border px-3 py-2 text-sm">
-              <p className="font-semibold text-foreground truncate">
-                {profile?.fullName || `Signed in as ${role}`}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">{session.user.phone}</p>
-            </div>
-            <div className="py-1">
-              <Link
-                to={dashboardPath}
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
-              >
-                <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-                Dashboard
-              </Link>
-              <Link
-                to={profilePath}
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
-              >
-                <User className="h-4 w-4 text-muted-foreground" />
-                View Profile
-              </Link>
-              <Link
-                to={profilePath}
-                search={{ edit: "true" } as any}
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
-              >
-                <Settings className="h-4 w-4 text-muted-foreground" />
-                Edit Profile
-              </Link>
-            </div>
-            <div className="border-t border-border pt-1">
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="press flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 cursor-pointer"
-              >
-                <LogOut className="h-4 w-4" />
-                Sign Out
-              </button>
-            </div>
+        <div className="animate-rise absolute right-0 mt-2 w-56 rounded-2xl border border-border bg-card p-2 shadow-2xl z-50">
+          <div className="border-b border-border/60 px-3 py-2">
+            <p className="text-sm font-semibold text-foreground truncate">{displayName}</p>
+            <p className="text-xs text-muted-foreground truncate">{user?.phone || "Verified Account"}</p>
           </div>
-        </>
+
+          <div className="py-1 space-y-0.5">
+            <Link
+              to={profileHref}
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+            >
+              <User className="h-4 w-4 text-muted-foreground" />
+              <span>Profile & Credentials</span>
+            </Link>
+          </div>
+
+          <div className="border-t border-border/60 pt-1">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/10"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Log out</span>
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

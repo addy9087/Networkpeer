@@ -1,19 +1,27 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+if (process.argv.includes("build")) {
+  process.env.NODE_ENV = "production";
+}
+
 export default defineConfig({
-  tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
-  },
-  vite: {
-    server: {
-      proxy: {
-        "/api/v1": {
-          target: "http://networkpeer-staging-api-alb-969746120.eu-north-1.elb.amazonaws.com",
-          changeOrigin: true,
-        },
+  tanstackStart: {},
+  server: {
+    port: 8080,
+    proxy: {
+      "/api/v1": {
+        target: "http://networkpeer-staging-api-alb-969746120.eu-north-1.elb.amazonaws.com",
+        changeOrigin: true,
       },
     },
   },
-});
+  nitro: {
+    preset: "vercel",
+    noExternals: true,
+    routeRules: {
+      "/api/v1/**": {
+        proxy: "http://networkpeer-staging-api-alb-969746120.eu-north-1.elb.amazonaws.com/api/v1/**",
+      },
+    },
+  },
+} as any);

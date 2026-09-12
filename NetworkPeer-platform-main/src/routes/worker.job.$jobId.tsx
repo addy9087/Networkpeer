@@ -1,14 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Camera, CheckCircle2, CheckCheck, Clock3, Loader2, MapPin, Wallet } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, Loader2, MapPin, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
-import { api, ApiError, type Submission, type WorkerJobDetail } from "@/lib/api";
-import { cn, formatCurrency } from "@/lib/utils";
-
+import { api, ApiError, type WorkerJobDetail } from "@/lib/api";
+import { formatCurrency } from "@/lib/utils";
 import { AnonymousBadge, Chip } from "@/components/marketplace/primitives";
-import { SubmissionReviewPane } from "@/components/jobs/Review/SubmissionReviewPane";
-
 
 export const Route = createFileRoute("/worker/job/$jobId")({
   head: () => ({
@@ -41,9 +38,6 @@ function JobDetailSkeleton() {
 function WorkerJob() {
   const { jobId } = Route.useParams();
   const [job, setJob] = useState<WorkerJobDetail | null>(null);
-  const [activeRole, setActiveRole] = useState<"collectionist" | "correctionist">("collectionist");
-  const [queueSubmissions, setQueueSubmissions] = useState<Submission[]>([]);
-  const [isLoadingQueue, setIsLoadingQueue] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isAccepting, setIsAccepting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,27 +55,9 @@ function WorkerJob() {
     }
   }, [jobId]);
 
-  const loadCorrectionQueue = useCallback(async () => {
-    setIsLoadingQueue(true);
-    try {
-      const res = await api.reviewQueue(jobId);
-      setQueueSubmissions(res.submissions || []);
-    } catch {
-      setQueueSubmissions([]);
-    } finally {
-      setIsLoadingQueue(false);
-    }
-  }, [jobId]);
-
   useEffect(() => {
     void loadJob();
   }, [loadJob]);
-
-  useEffect(() => {
-    if (activeRole === "correctionist") {
-      void loadCorrectionQueue();
-    }
-  }, [activeRole, loadCorrectionQueue]);
 
   const acceptJob = useCallback(async () => {
     setIsAccepting(true);
@@ -98,7 +74,6 @@ function WorkerJob() {
       setIsAccepting(false);
     }
   }, [jobId]);
-
 
   if (isLoading) return <JobDetailSkeleton />;
 
@@ -119,6 +94,10 @@ function WorkerJob() {
   }
 
   const assignmentVisible = job.is_assigned_to_requester;
+
+  const canWorkOn =
+    assignmentVisible &&
+    ["ASSIGNED", "EN_ROUTE", "AT_LOCATION", "IN_PROGRESS"].includes(job.status);
 
   return (
     <div>
@@ -149,133 +128,81 @@ function WorkerJob() {
             {error}
           </p>
         )}
-
-        {/* Revision 2 §2.4: Dual Role Switcher (Collect vs Correct) */}
-        <div className="flex rounded-2xl border border-border bg-card p-1 shadow-lift">
-          <button
-            type="button"
-            onClick={() => setActiveRole("collectionist")}
-            className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition-all",
-              activeRole === "collectionist"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-lift">
+          <div className="flex items-center justify-between gap-3">
+            <AnonymousBadge role="Client" />
+            <Chip tone="neutral">{job.status.replaceAll("_", " ")}</Chip>
+          </div>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{job.description}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {job.scheduled_at && (
+              <Chip>
+                <Clock3 className="h-3.5 w-3.5" /> {new Date(job.scheduled_at).toLocaleString()}
+              </Chip>
             )}
-          >
-            <Camera className="h-3.5 w-3.5" />
-            <span>Collect</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveRole("correctionist")}
-            className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition-all",
-              activeRole === "correctionist"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <CheckCheck className="h-3.5 w-3.5" />
-            <span>Correct (Review)</span>
-          </button>
-        </div>
-
-        {activeRole === "correctionist" ? (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3.5 text-xs text-blue-900 dark:text-blue-200">
-              <span className="font-bold">Correctionist Mode:</span> Review field captures and OCR text side by side. Approve clean entries or request redos with inline notes.
-            </div>
-            {isLoadingQueue ? (
-              <div className="flex h-60 items-center justify-center rounded-2xl border border-border bg-card">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              </div>
-            ) : (
-              <SubmissionReviewPane
-                submissions={queueSubmissions}
-                mode="correctionist"
-                onDecide={async (submissionId, decision, note) => {
-                  await api.submitReview(submissionId, decision, note, "correctionist");
-                  void loadCorrectionQueue();
-                }}
-              />
+            {assignmentVisible && job.address && (
+              <Chip>
+                <MapPin className="h-3.5 w-3.5" /> {job.address}
+              </Chip>
             )}
           </div>
-        ) : (
-          <>
-            <section className="rounded-2xl border border-border bg-card p-4 shadow-lift">
-              <div className="flex items-center justify-between gap-3">
-                <AnonymousBadge role="Client" />
-                <Chip tone="neutral">{job.status.replaceAll("_", " ")}</Chip>
-              </div>
-              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{job.description}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {job.scheduled_at && (
-                  <Chip>
-                    <Clock3 className="h-3.5 w-3.5" /> {new Date(job.scheduled_at).toLocaleString()}
-                  </Chip>
-                )}
-                {assignmentVisible && job.address && (
-                  <Chip>
-                    <MapPin className="h-3.5 w-3.5" /> {job.address}
-                  </Chip>
-                )}
-              </div>
-              {!assignmentVisible && (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  The precise location, address, and evidence checklist are available only after
-                  acceptance.
-                </p>
-              )}
-            </section>
+          {!assignmentVisible && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              The precise location, address, and evidence checklist are available only after
+              acceptance.
+            </p>
+          )}
+        </section>
 
-            {assignmentVisible && (
-              <section className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-                <h2 className="text-sm font-semibold">Checklist ({job.subtasks.length} tasks)</h2>
-                {job.subtasks.length > 0 ? (
-                  <ul className="mt-3 space-y-3">
-                    {job.subtasks.map((subtask, index) => (
-                      <li key={subtask.id} className="rounded-xl bg-muted/50 p-3">
-                        <p className="text-sm font-medium">
-                          {index + 1}. {subtask.title}
-                        </p>
-                        {subtask.description && (
-                          <p className="mt-0.5 text-xs text-muted-foreground">{subtask.description}</p>
-                        )}
-                        {subtask.is_required && <Chip tone="primary">Evidence required</Chip>}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-3 text-sm text-muted-foreground">This job has no checklist items.</p>
-                )}
-              </section>
+        {assignmentVisible && (
+          <section className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+            <h2 className="text-sm font-semibold">Checklist ({job.subtasks.length} tasks)</h2>
+            {job.subtasks.length > 0 ? (
+              <ul className="mt-3 space-y-3">
+                {job.subtasks.map((subtask, index) => (
+                  <li key={subtask.id} className="rounded-xl bg-muted/50 p-3">
+                    <p className="text-sm font-medium">
+                      {index + 1}. {subtask.title}
+                    </p>
+                    {subtask.description && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">{subtask.description}</p>
+                    )}
+                    {subtask.is_required && <Chip tone="primary">Evidence required</Chip>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">This job has no checklist items.</p>
             )}
-
-            {assignmentVisible && job.status !== "SUBMITTED" && job.status !== "COMPLETED" && (
-              <Link
-                to="/worker/task/$jobId"
-                params={{ jobId: job.id }}
-                className="press gradient-brand shadow-glow flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold text-primary-foreground"
-              >
-                <CheckCircle2 className="h-4 w-4" /> Continue live task
-              </Link>
-            )}
-
-            <section className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
-                <span className="grid h-9 w-9 place-items-center rounded-xl bg-success/20 text-success">
-                  <Wallet className="h-4 w-4" />
-                </span>
-                <p className="text-xs text-muted-foreground">
-                  Budget and settlement are enforced by the backend; the client identity remains
-                  private.
-                </p>
-              </div>
-            </section>
-          </>
+          </section>
         )}
-      </div>
 
+        {canWorkOn ? (
+          <Link
+            to="/worker/task/$jobId"
+            params={{ jobId: job.id }}
+            className="press gradient-brand shadow-glow flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold text-primary-foreground"
+          >
+            <CheckCircle2 className="h-4 w-4" /> Continue live task
+          </Link>
+        ) : assignmentVisible ? (
+          <div className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-border bg-muted/50 text-sm font-medium text-muted-foreground">
+            {job.status.replaceAll("_", " ")} — no further action needed
+          </div>
+        ) : null}
+
+        <section className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+          <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-success/20 text-success">
+              <Wallet className="h-4 w-4" />
+            </span>
+            <p className="text-xs text-muted-foreground">
+              Budget and settlement are enforced by the backend; the client identity remains
+              private.
+            </p>
+          </div>
+        </section>
+      </div>
 
       {!assignmentVisible && (
         <div className="glass sticky bottom-20 z-20 mx-4 mt-4 rounded-2xl p-2">
