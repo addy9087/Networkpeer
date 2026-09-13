@@ -128,6 +128,15 @@ private class RefreshTokenAuthenticator(
         if (responseCount(response) >= 2) return null
         val requestSession = response.request.tag(AuthenticatedRequestSession::class.java)?.value ?: return null
 
+        // Local, fallback, or demo sessions do not rotate via remote Cognito
+        val isLocalSession = requestSession.refreshToken.startsWith("refresh_") ||
+            requestSession.accessToken.startsWith("token_") ||
+            requestSession.accessToken.startsWith("demo-") ||
+            requestSession.user.id.startsWith("usr_")
+        if (isLocalSession) {
+            return null
+        }
+
         // Refresh tokens rotate after one use, so every 401 must observe the same critical section.
         return synchronized(refreshLock) {
             val current = sessionStore.current() ?: return@synchronized null
@@ -148,7 +157,7 @@ private class RefreshTokenAuthenticator(
             val body = refreshResponse.body()
             val pair = body?.data?.takeIf { refreshResponse.isSuccessful && body.success }
             if (pair == null) {
-                if (refreshResponse.code() == 401 || refreshResponse.code() == 403) {
+                if ((refreshResponse.code() == 401 || refreshResponse.code() == 403) && !isLocalSession) {
                     // Do not let a stale response clear a session selected while refresh was in flight.
                     sessionStore.clearIfCurrent(requestSession)
                 }

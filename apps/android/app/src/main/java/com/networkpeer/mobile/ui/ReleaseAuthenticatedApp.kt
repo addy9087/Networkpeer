@@ -170,10 +170,8 @@ import java.util.Locale
 import java.util.concurrent.CancellationException
 
 enum class AppNavTab {
-    DASHBOARD,
-    JOBS,
-    WALLET,
-    PROFILE,
+    MY_JOBS,
+    DASHBOARD_PROFILE,
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -187,7 +185,7 @@ internal fun ReleaseAuthenticatedApp(container: AppContainer, session: StoredSes
     var creatingJob by rememberSaveable { mutableStateOf(false) }
     var inboxOpen by rememberSaveable { mutableStateOf(false) }
 
-    var selectedTab by rememberSaveable { mutableStateOf(AppNavTab.DASHBOARD) }
+    var selectedTab by rememberSaveable { mutableStateOf(AppNavTab.MY_JOBS) }
     var profileEditMode by rememberSaveable { mutableStateOf(false) }
     var userMenuOpen by remember { mutableStateOf(false) }
 
@@ -267,8 +265,8 @@ internal fun ReleaseAuthenticatedApp(container: AppContainer, session: StoredSes
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text("Dashboard") },
-                                leadingIcon = { Icon(Icons.Outlined.Dashboard, contentDescription = null) },
+                                text = { Text("My Jobs") },
+                                leadingIcon = { Icon(Icons.Outlined.WorkOutline, contentDescription = null) },
                                 onClick = {
                                     userMenuOpen = false
                                     inboxOpen = false
@@ -276,11 +274,11 @@ internal fun ReleaseAuthenticatedApp(container: AppContainer, session: StoredSes
                                     workerJobId = null
                                     workerPreviewJobId = null
                                     creatingJob = false
-                                    selectedTab = AppNavTab.DASHBOARD
+                                    selectedTab = AppNavTab.MY_JOBS
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("View Profile") },
+                                text = { Text("Dashboard & Profile") },
                                 leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
                                 onClick = {
                                     userMenuOpen = false
@@ -289,22 +287,7 @@ internal fun ReleaseAuthenticatedApp(container: AppContainer, session: StoredSes
                                     workerJobId = null
                                     workerPreviewJobId = null
                                     creatingJob = false
-                                    profileEditMode = false
-                                    selectedTab = AppNavTab.PROFILE
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Edit Profile") },
-                                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                                onClick = {
-                                    userMenuOpen = false
-                                    inboxOpen = false
-                                    clientJobId = null
-                                    workerJobId = null
-                                    workerPreviewJobId = null
-                                    creatingJob = false
-                                    profileEditMode = true
-                                    selectedTab = AppNavTab.PROFILE
+                                    selectedTab = AppNavTab.DASHBOARD_PROFILE
                                 },
                             )
                             DropdownMenuItem(
@@ -337,37 +320,108 @@ internal fun ReleaseAuthenticatedApp(container: AppContainer, session: StoredSes
         },
         bottomBar = {
             if (!isDetailFlow) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 4.dp,
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp,
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
                 ) {
-                    NavigationBarItem(
-                        selected = selectedTab == AppNavTab.DASHBOARD,
-                        onClick = { selectedTab = AppNavTab.DASHBOARD },
-                        icon = { Icon(Icons.Outlined.Dashboard, contentDescription = "Dashboard") },
-                        label = { Text("Home", maxLines = 1, softWrap = false) },
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == AppNavTab.JOBS,
-                        onClick = { selectedTab = AppNavTab.JOBS },
-                        icon = { Icon(Icons.Outlined.WorkOutline, contentDescription = "Jobs") },
-                        label = { Text("Jobs", maxLines = 1, softWrap = false) },
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == AppNavTab.WALLET,
-                        onClick = { selectedTab = AppNavTab.WALLET },
-                        icon = { Icon(Icons.Outlined.AccountBalanceWallet, contentDescription = "Wallet") },
-                        label = { Text("Wallet", maxLines = 1, softWrap = false) },
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == AppNavTab.PROFILE,
-                        onClick = {
-                            selectedTab = AppNavTab.PROFILE
-                            profileEditMode = false
-                        },
-                        icon = { Icon(Icons.Outlined.Person, contentDescription = "Profile") },
-                        label = { Text("Profile", maxLines = 1, softWrap = false) },
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(72.dp)
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 1. LEFT ITEM: My Jobs
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    selectedTab = AppNavTab.MY_JOBS
+                                }
+                                .padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            val isSelected = selectedTab == AppNavTab.MY_JOBS
+                            Icon(
+                                imageVector = Icons.Outlined.WorkOutline,
+                                contentDescription = "My Jobs",
+                                tint = if (isSelected) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "My Jobs",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        // 2. CENTER ITEM: + Sign in Circle (Post a Job)
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .size(54.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        creatingJob = true
+                                    },
+                                shape = CircleShape,
+                                color = Color(0xFFF9C933), // Canary Yellow
+                                shadowElevation = 6.dp,
+                                border = BorderStroke(2.dp, Color(0xFF111827)),
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Add,
+                                        contentDescription = "Post a Job",
+                                        tint = Color(0xFF111827), // Obsidian Charcoal
+                                        modifier = Modifier.size(32.dp),
+                                    )
+                                }
+                            }
+                        }
+
+                        // 3. RIGHT ITEM: Dashboard / Profile
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    selectedTab = AppNavTab.DASHBOARD_PROFILE
+                                    profileEditMode = false
+                                }
+                                .padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            val isSelected = selectedTab == AppNavTab.DASHBOARD_PROFILE
+                            Icon(
+                                imageVector = Icons.Outlined.Person,
+                                contentDescription = "Dashboard / Profile",
+                                tint = if (isSelected) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Dashboard",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -404,24 +458,17 @@ internal fun ReleaseAuthenticatedApp(container: AppContainer, session: StoredSes
                             onBack = { clientJobId = null },
                         )
                         else -> when (selectedTab) {
-                            AppNavTab.DASHBOARD -> ClientDashboardScreen(
-                                container = container,
-                                onCreateJob = { creatingJob = true },
-                                onOpenJob = { clientJobId = it },
-                                onGoToJobs = { selectedTab = AppNavTab.JOBS },
-                                onGoToWallet = { selectedTab = AppNavTab.WALLET },
-                            )
-                            AppNavTab.JOBS -> ClientHomeScreen(
+                            AppNavTab.MY_JOBS -> ClientHomeScreen(
                                 container = container,
                                 onCreateJob = { creatingJob = true },
                                 onOpenJob = { clientJobId = it },
                             )
-                            AppNavTab.WALLET -> ClientWalletOnlyScreen(container = container)
-                            AppNavTab.PROFILE -> UserProfileScreen(
+                            AppNavTab.DASHBOARD_PROFILE -> ClientDashboardProfileScreen(
                                 container = container,
                                 session = session,
-                                isEditMode = profileEditMode,
-                                onToggleEditMode = { profileEditMode = it },
+                                onCreateJob = { creatingJob = true },
+                                onOpenJob = { clientJobId = it },
+                                onGoToJobs = { selectedTab = AppNavTab.MY_JOBS },
                             )
                         }
                     }
@@ -440,28 +487,131 @@ internal fun ReleaseAuthenticatedApp(container: AppContainer, session: StoredSes
                             jobId = workerJobId!!,
                             onBack = { workerJobId = null },
                         )
+                        creatingJob -> ClientCreateJobScreen(
+                            container = container,
+                            onBack = { creatingJob = false },
+                            onCreated = { jobId ->
+                                creatingJob = false
+                                workerPreviewJobId = jobId
+                            },
+                        )
                         else -> when (selectedTab) {
-                            AppNavTab.DASHBOARD -> WorkerDashboardScreen(
-                                container = container,
-                                onOpenJob = { workerPreviewJobId = it },
-                                onGoToJobs = { selectedTab = AppNavTab.JOBS },
-                                onGoToWallet = { selectedTab = AppNavTab.WALLET },
-                            )
-                            AppNavTab.JOBS -> WorkerDiscoveryScreen(
+                            AppNavTab.MY_JOBS -> WorkerDiscoveryScreen(
                                 container = container,
                                 onOpenJob = { workerPreviewJobId = it },
                             )
-                            AppNavTab.WALLET -> WorkerWalletOnlyScreen(container = container)
-                            AppNavTab.PROFILE -> UserProfileScreen(
+                            AppNavTab.DASHBOARD_PROFILE -> WorkerDashboardProfileScreen(
                                 container = container,
                                 session = session,
-                                isEditMode = profileEditMode,
-                                onToggleEditMode = { profileEditMode = it },
+                                onOpenJob = { workerPreviewJobId = it },
+                                onGoToJobs = { selectedTab = AppNavTab.MY_JOBS },
                             )
                         }
                     }
                     UserRole.ADMIN -> AdminBoundaryScreen()
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClientDashboardProfileScreen(
+    container: AppContainer,
+    session: StoredSession,
+    onCreateJob: () -> Unit,
+    onOpenJob: (String) -> Unit,
+    onGoToJobs: () -> Unit,
+) {
+    var selectedSubTab by rememberSaveable { mutableStateOf(0) }
+    var isEditMode by rememberSaveable { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(
+            selectedTabIndex = selectedSubTab,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+        ) {
+            Tab(
+                selected = selectedSubTab == 0,
+                onClick = { selectedSubTab = 0 },
+                text = { Text("Overview", fontWeight = if (selectedSubTab == 0) FontWeight.Bold else FontWeight.Normal) },
+                icon = { Icon(Icons.Outlined.Dashboard, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            )
+            Tab(
+                selected = selectedSubTab == 1,
+                onClick = { selectedSubTab = 1 },
+                text = { Text("Profile & Settings", fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Normal) },
+                icon = { Icon(Icons.Outlined.Person, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            )
+        }
+
+        Box(modifier = Modifier.weight(1f)) {
+            if (selectedSubTab == 0) {
+                ClientDashboardScreen(
+                    container = container,
+                    onCreateJob = onCreateJob,
+                    onOpenJob = onOpenJob,
+                    onGoToJobs = onGoToJobs,
+                    onGoToWallet = { selectedSubTab = 1 },
+                )
+            } else {
+                UserProfileScreen(
+                    container = container,
+                    session = session,
+                    isEditMode = isEditMode,
+                    onToggleEditMode = { isEditMode = it },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkerDashboardProfileScreen(
+    container: AppContainer,
+    session: StoredSession,
+    onOpenJob: (String) -> Unit,
+    onGoToJobs: () -> Unit,
+) {
+    var selectedSubTab by rememberSaveable { mutableStateOf(0) }
+    var isEditMode by rememberSaveable { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(
+            selectedTabIndex = selectedSubTab,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+        ) {
+            Tab(
+                selected = selectedSubTab == 0,
+                onClick = { selectedSubTab = 0 },
+                text = { Text("Overview", fontWeight = if (selectedSubTab == 0) FontWeight.Bold else FontWeight.Normal) },
+                icon = { Icon(Icons.Outlined.Dashboard, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            )
+            Tab(
+                selected = selectedSubTab == 1,
+                onClick = { selectedSubTab = 1 },
+                text = { Text("Profile & Settings", fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Normal) },
+                icon = { Icon(Icons.Outlined.Person, contentDescription = null, modifier = Modifier.size(20.dp)) },
+            )
+        }
+
+        Box(modifier = Modifier.weight(1f)) {
+            if (selectedSubTab == 0) {
+                WorkerDashboardScreen(
+                    container = container,
+                    onOpenJob = onOpenJob,
+                    onGoToJobs = onGoToJobs,
+                    onGoToWallet = { selectedSubTab = 1 },
+                )
+            } else {
+                UserProfileScreen(
+                    container = container,
+                    session = session,
+                    isEditMode = isEditMode,
+                    onToggleEditMode = { isEditMode = it },
+                )
             }
         }
     }
@@ -1264,6 +1414,19 @@ private fun UserProfileScreen(
                         Icon(Icons.Outlined.Edit, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Edit Profile", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                item {
+                    OutlinedButton(
+                        onClick = { scope.launch { container.authRepository.logout() } },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    ) {
+                        Icon(Icons.Outlined.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Sign Out", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
