@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import { Briefcase, HardHat, KeyRound, Mail, Smartphone, User, Zap } from "lucide-react";
+import { Briefcase, HardHat, KeyRound, Mail, Smartphone, User } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -56,24 +56,6 @@ function AuthPage() {
   const [countryCode, setCountryCode] = useState("+91");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  const enterDemo = async (targetRole: Role) => {
-    authSession.set({
-      accessToken: `demo-${targetRole.toLowerCase()}-token`,
-      refreshToken: `demo-${targetRole.toLowerCase()}-refresh`,
-      expiresIn: 86400,
-      user: {
-        id: `demo-${targetRole.toLowerCase()}-id`,
-        role: targetRole,
-        phone: targetRole === "CLIENT" ? "+919876543210" : "+919999999999",
-        full_name: targetRole === "CLIENT" ? "Demo Client" : "Verified Worker",
-        mobile_number: targetRole === "CLIENT" ? "+919876543210" : "+919999999999",
-        email: `${targetRole.toLowerCase()}@networkpeer.test`,
-      },
-    });
-    toast.success(`Welcome to ${targetRole === "CLIENT" ? "Client Workspace" : "Worker Workspace"}`);
-    await router.navigate({ to: targetRole === "CLIENT" ? "/client" : "/worker" });
-  };
 
   const submit = async () => {
     setError("");
@@ -146,29 +128,6 @@ function AuthPage() {
       heading="Work gets done. Identities stay private."
       sub="Sign in securely with passwordless Email-OTP. Your session is held securely in this browser."
     >
-      {/* 1-Click Instant Demo Access */}
-      <div className="mb-6 grid gap-2.5 rounded-2xl border border-primary/30 bg-primary/5 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-          Instant Portal Access
-        </p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => void enterDemo("CLIENT")}
-            className="press inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/40 bg-card px-3 text-sm font-semibold text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
-          >
-            <Zap className="h-4 w-4" /> Enter Client Portal
-          </button>
-          <button
-            type="button"
-            onClick={() => void enterDemo("WORKER")}
-            className="press inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-primary/40 bg-card px-3 text-sm font-semibold text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
-          >
-            <Zap className="h-4 w-4" /> Enter Worker Portal
-          </button>
-        </div>
-      </div>
-
       <h1 className="text-4xl font-semibold">
         {mode === "register" ? "Create your account" : "Welcome back"}
       </h1>
