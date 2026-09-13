@@ -146,10 +146,22 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
   MAX_REQUEST_BODY_BYTES: z.coerce.number().int().min(1024).max(10 * 1024 * 1024).default(1024 * 1024),
-  WORKER_NEARBY_MAX_RADIUS_KM: z.coerce.number().int().min(1).max(500).default(100),
-
   LOG_LEVEL: z.string().default("info"),
   LOG_PRETTY: z.enum(["true", "false"]).default("true"),
+
+  // Worker discovery
+  WORKER_NEARBY_MAX_RADIUS_KM: z.coerce.number().int().min(1).max(500).default(100),
+
+  // Email OTP Delivery Configuration (§12, Mass Scale Production)
+  EMAIL_PROVIDER: z.enum(["resend", "ses", "smtp", "log"]).default("log"),
+  EMAIL_FROM: z.string().default("NetworkPeers <auth@networkpeer.io>"),
+  RESEND_API_KEY: z.string().default(""),
+  AWS_SES_FROM_EMAIL: z.string().default(""),
+  SMTP_HOST: z.string().default(""),
+  SMTP_PORT: z.coerce.number().int().default(587),
+  SMTP_USER: z.string().default(""),
+  SMTP_PASS: z.string().default(""),
+  SMTP_SECURE: z.enum(["true", "false"]).default("false"),
 }).superRefine((env, ctx) => {
   if (env.DATABASE_POOL_MIN > env.DATABASE_POOL_MAX) {
     ctx.addIssue({

@@ -14,6 +14,7 @@ import {
   getUserByEmail,
   resolveEmailUser,
 } from "../repository.js";
+import { emailService } from "../services/email-service.js";
 
 const phoneSchema = z
   .string()
@@ -173,6 +174,14 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
 
     request.log.info({ email, challengeId }, "[Email-OTP] Code issued (Hash stored)");
 
+    // Dispatch via configured production email provider (Resend, SES, SMTP, or Log)
+    await emailService.sendOtpEmail({
+      to: email,
+      code: rawCode,
+      clientIp,
+      role: body.value.role,
+    });
+
     return ok({
       challenge_id: challengeId,
       expires_in_seconds: 600,
@@ -285,7 +294,9 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
     if (body.value.email) {
       const email = body.value.email.toLowerCase();
       const challengeId = `chn_${randomBytes(16).toString("hex")}`;
-      const rawCode = "123456";
+      const rawCode = config.NODE_ENV === "production"
+        ? Math.floor(100000 + Math.random() * 900000).toString()
+        : "123456";
       emailChallengeMap.set(`email:${email}`, {
         id: challengeId,
         email,
@@ -295,12 +306,20 @@ export default async function authRoutes(app: FastifyInstance): Promise<void> {
         consumed: false,
         role: body.value.role ?? "CLIENT",
       });
+
+      await emailService.sendOtpEmail({
+        to: email,
+        code: rawCode,
+        clientIp: request.ip,
+        role: body.value.role,
+      });
+
       return ok({
         challenge_id: challengeId,
         expires_in_seconds: 600,
         otp_length: 6,
         delivery: { transport: "email" },
-        development_otp: rawCode,
+        development_otp: config.NODE_ENV !== "production" ? rawCode : undefined,
       });
     }
 
